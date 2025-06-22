@@ -1,0 +1,13 @@
+(library
+ (name hardcaml_memory_controller_test)
+ (libraries
+  hardcaml
+  core
+  async
+  async_unix
+  hardcaml_waveterm
+  hardcaml_test_harness
+  hardcaml_memory_controller)
+ (inline_tests)
+ (preprocess
+  (pps ppx_jane ppx_hardcaml ppx_deriving.show ppx_deriving.ord ppx_expect)))
