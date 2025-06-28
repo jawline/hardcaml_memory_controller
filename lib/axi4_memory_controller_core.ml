@@ -67,7 +67,7 @@ struct
       ; selected_read_ch : 'a Memory_bus.Read_bus.Source.t
       ; which_write_ch : 'a [@bits address_bits_for M.num_write_channels]
       ; selected_write_ch : 'a Memory_bus.Write_bus.Source.t
-      ; axi : 'a Axi4.I.t
+      ; memory : 'a Axi4.I.t [@rtlprefix "memory_i$"]
       }
     [@@deriving hardcaml ~rtlmangle:"$"]
   end
@@ -81,7 +81,7 @@ struct
             [@length M.num_write_channels]
       ; write_ready : 'a
       ; write_error : 'a
-      ; axi : 'a Axi4.O.t
+      ; memory : 'a Axi4.O.t [@rtlprefix "memory_o$"]
       }
     [@@deriving hardcaml ~rtlmangle:"$"]
   end
@@ -105,7 +105,7 @@ struct
          ; selected_read_ch
          ; which_write_ch
          ; selected_write_ch
-         ; axi
+         ; memory
          } :
           _ I.t)
     =
@@ -114,24 +114,24 @@ struct
     { O.read_response =
         List.init
           ~f:(fun channel ->
-            let is_channel = axi.rid ==:. channel in
-            { With_valid.valid = axi.rvalid &: is_channel
-            ; value = { Read_response.read_data = axi.rdata }
+            let is_channel = memory.rid ==:. channel in
+            { With_valid.valid = memory.rvalid &: is_channel
+            ; value = { Read_response.read_data = memory.rdata }
             })
           M.num_read_channels
-    ; read_ready = axi.rready
+    ; read_ready = memory.rready
     ; read_error = selected_read_ch.valid &: read_invalid
     ; write_response =
         List.init
           ~f:(fun channel ->
-            let is_channel = axi.bid ==:. channel in
-            { With_valid.valid = axi.bvalid &: is_channel
+            let is_channel = memory.bid ==:. channel in
+            { With_valid.valid = memory.bvalid &: is_channel
             ; value = { Write_response.dummy = gnd }
             })
           M.num_write_channels
-    ; write_ready = axi.wready
+    ; write_ready = memory.wready
     ; write_error = selected_write_ch.valid
-    ; axi =
+    ; memory =
         { awvalid = selected_write_ch.valid &: ~:write_invalid
         ; awid = uextend ~width:Axi4.O.port_widths.awid which_write_ch
         ; awaddr =

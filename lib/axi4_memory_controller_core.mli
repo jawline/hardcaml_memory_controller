@@ -24,7 +24,7 @@ module Make
       ; selected_read_ch : 'a Memory_bus.Read_bus.Source.t
       ; which_write_ch : 'a
       ; selected_write_ch : 'a Memory_bus.Write_bus.Source.t
-      ; axi : 'a Axi4.I.t
+      ; memory : 'a Axi4.I.t
       }
     [@@deriving hardcaml]
   end
@@ -37,7 +37,7 @@ module Make
       ; write_response : 'a Memory_bus.Write_response.With_valid.t list
       ; write_ready : 'a
       ; write_error : 'a
-      ; axi : 'a Axi4.O.t
+      ; memory : 'a Axi4.O.t
       }
     [@@deriving hardcaml]
   end

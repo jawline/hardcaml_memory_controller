@@ -21,7 +21,7 @@ module Make
             [@length M.num_write_channels]
       ; read_to_controller : 'a Memory_bus.Read_bus.Source.t list
             [@length M.num_read_channels]
-      ; axi : 'a Axi.I.t
+      ; memory : 'a Axi.I.t
       }
     [@@deriving hardcaml]
   end
@@ -36,7 +36,7 @@ module Make
             [@length M.num_write_channels]
       ; read_response : 'a Memory_bus.Read_response.With_valid.t list
             [@length M.num_read_channels]
-      ; axi : 'a Axi.O.t
+      ; memory : 'a Axi.O.t
       }
     [@@deriving hardcaml]
   end

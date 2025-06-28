@@ -41,7 +41,7 @@ struct
       ; clear : 'a
       ; write_to_controller : 'a Write_bus.Source.t list [@length M.num_write_channels]
       ; read_to_controller : 'a Read_bus.Source.t list [@length M.num_read_channels]
-      ; axi : 'a Axi.I.t [@rtlprefix "axi_i_"]
+      ; memory : 'a Axi.I.t [@rtlprefix "memory_i$"]
       }
     [@@deriving hardcaml ~rtlmangle:"$"]
   end
@@ -53,7 +53,7 @@ struct
       ; write_response : 'a Write_response.With_valid.t list
             [@length M.num_write_channels]
       ; read_response : 'a Read_response.With_valid.t list [@length M.num_read_channels]
-      ; axi : 'a Axi.O.t [@rtlprefix "axi_o_"]
+      ; memory : 'a Axi.O.t [@rtlprefix "memory_o$"]
       }
     [@@deriving hardcaml ~rtlmangle:"$"]
   end
@@ -62,7 +62,7 @@ struct
         ~request_delay
         ~priority_mode
         scope
-        ({ clock; clear; write_to_controller; read_to_controller; axi } : _ I.t)
+        ({ clock; clear; write_to_controller; read_to_controller; memory } : _ I.t)
     =
     let reg_spec_no_clear = Reg_spec.create ~clock () in
     let write_arbitrator =
@@ -98,7 +98,7 @@ struct
               ~n:request_delay
               reg_spec_no_clear
               read_arbitrator.selected_ch
-        ; axi
+        ; memory
         }
     in
     (* TODO: Propagate errors *)
@@ -112,7 +112,7 @@ struct
           read_arbitrator.acks
     ; write_response = core.write_response
     ; read_response = core.read_response
-    ; axi = core.axi
+    ; memory = core.memory
     }
   ;;
 

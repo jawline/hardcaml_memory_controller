@@ -41,22 +41,22 @@ struct
     module O = Memory_controller.O
 
     let create scope ({ I.clock; clear; _ } as i) =
-      let axi = Axi4.O.Of_signal.wires () in
+      let memory = Axi4.O.Of_signal.wires () in
       let ram =
         Memory.hierarchical
           ~build_mode:Simulation
           ~read_latency:1
           scope
-          { Memory.I.clock; clear; axi }
+          { Memory.I.clock; clear; memory }
       in
       let ctrl =
         Memory_controller.hierarchical
           ~priority_mode:Priority_order
           ~request_delay:1
           scope
-          { i with axi = ram.axi }
+          { i with memory = ram.memory }
       in
-      Axi4.O.Of_signal.assign axi ctrl.axi;
+      Axi4.O.Of_signal.assign memory ctrl.memory;
       ctrl
     ;;
 

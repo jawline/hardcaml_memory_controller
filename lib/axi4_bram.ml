@@ -31,38 +31,37 @@ struct
     type 'a t =
       { clock : 'a
       ; clear : 'a
-      ; axi : 'a Axi.O.t
+      ; memory : 'a Axi.O.t
       }
     [@@deriving hardcaml ~rtlmangle:"$"]
   end
 
   module O = struct
-    type 'a t = { axi : 'a Axi.I.t } [@@deriving hardcaml ~rtlmangle:"$"]
+    type 'a t = { memory : 'a Axi.I.t } [@@deriving hardcaml ~rtlmangle:"$"]
   end
 
-  let create ~build_mode ~read_latency scope ({ clock; clear; axi } : _ I.t) =
+  let create ~build_mode ~read_latency scope ({ clock; clear; memory } : _ I.t) =
     let reg_spec = Reg_spec.create ~clock ~clear () in
-    let memory =
+    let%hw read_data =
       Simple_dual_port_ram.create
         ~simulation_name:"main_memory_bram"
         ~size:capacity_in_words
         ~build_mode
         ~clock
         ~clear
-        ~write_enable:(repeat ~count:(width axi.wstrb) axi.awvalid &: axi.wstrb)
-        ~write_address:axi.awaddr
-        ~data:axi.wdata
-        ~read_enable:axi.arvalid
-        ~read_address:axi.araddr
+        ~write_enable:(repeat ~count:(width memory.wstrb) memory.awvalid &: memory.wstrb)
+        ~write_address:memory.awaddr
+        ~data:memory.wdata
+        ~read_enable:memory.arvalid
+        ~read_address:memory.araddr
         ()
     in
-    let%hw read_data = memory in
-    { O.axi =
-        { Axi.I.bvalid = reg reg_spec axi.awvalid
-        ; bid = reg reg_spec axi.awid
+    { O.memory =
+        { Axi.I.bvalid = reg reg_spec memory.awvalid
+        ; bid = reg reg_spec memory.awid
         ; bresp = zero 2
-        ; rvalid = pipeline ~n:read_latency reg_spec axi.arvalid
-        ; rid = pipeline ~n:read_latency reg_spec axi.arid
+        ; rvalid = pipeline ~n:read_latency reg_spec memory.arvalid
+        ; rid = pipeline ~n:read_latency reg_spec memory.arid
         ; rdata = read_data
         ; rresp = zero 2
         ; wready = vdd

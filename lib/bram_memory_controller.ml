@@ -59,9 +59,13 @@ struct
         scope
         ({ clock; clear; write_to_controller; read_to_controller } : _ I.t)
     =
-    let axi = Axi4.O.Of_signal.wires () in
+    let memory = Axi4.O.Of_signal.wires () in
     let mem =
-      Memory.hierarchical ~build_mode ~read_latency scope { Memory.I.clock; clear; axi }
+      Memory.hierarchical
+        ~build_mode
+        ~read_latency
+        scope
+        { Memory.I.clock; clear; memory }
     in
     let core =
       Memory_controller.hierarchical
@@ -72,10 +76,10 @@ struct
         ; clear
         ; write_to_controller
         ; read_to_controller
-        ; axi = mem.axi
+        ; memory = mem.memory
         }
     in
-    Axi4.O.Of_signal.assign axi core.axi;
+    Axi4.O.Of_signal.assign memory core.memory;
     { O.write_to_controller = core.write_to_controller
     ; read_to_controller = core.read_to_controller
     ; write_response = core.write_response
