@@ -137,9 +137,6 @@ struct
         ; awaddr =
             drop_bottom ~width:unaligned_bits_data_bus selected_write_ch.data.address
             |> sel_bottom ~width:Axi4.O.port_widths.awaddr
-        ; awlena = one 8
-        ; awsize = one 3
-        ; awburst = zero 2
         ; wdata = selected_write_ch.data.write_data
         ; wstrb = selected_write_ch.data.wstrb
         ; wlast = vdd
@@ -148,9 +145,6 @@ struct
         ; araddr =
             drop_bottom ~width:unaligned_bits_data_bus selected_read_ch.data.address
             |> sel_bottom ~width:Axi4.O.port_widths.araddr
-        ; arlen = one 8
-        ; arsize = one 3
-        ; arburst = zero 2
         ; rready = vdd
         }
     }

@@ -21,18 +21,12 @@ module M (Config : Axi4_config_intf.Config) = struct
         { awvalid : 'a
         ; awid : 'a
         ; awaddr : 'a
-        ; awlena : 'a
-        ; awsize : 'a
-        ; awburst : 'a
         ; wdata : 'a
         ; wstrb : 'a
         ; wlast : 'a
         ; arvalid : 'a
         ; arid : 'a
         ; araddr : 'a
-        ; arlen : 'a
-        ; arsize : 'a
-        ; arburst : 'a
         ; rready : 'a
         }
       [@@deriving hardcaml]

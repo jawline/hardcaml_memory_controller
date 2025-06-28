@@ -22,19 +22,20 @@ module Make (Config : Axi4_config_intf.Config) = struct
       { awvalid : 'a
       ; awid : 'a [@bits id_width]
       ; awaddr : 'a [@bits addr_width]
-      ; awlena : 'a [@bits 8]
-      ; awsize : 'a [@bits 3]
-      ; awburst : 'a [@bits 2]
       ; wdata : 'a [@bits data_width]
       ; wstrb : 'a [@bits data_width / 8]
       ; wlast : 'a
       ; arvalid : 'a
       ; arid : 'a [@bits id_width]
       ; araddr : 'a [@bits addr_width]
-      ; arlen : 'a [@bits 8]
+      ; rready : 'a
+        (* We currently don't support bursts so these fields are unused. Implementors should always set size of one and length of bus width. 
+      ; awsize : 'a [@bits 3]
+      ; awburst : 'a [@bits 2]
+      ; awlena : 'a [@bits 8]
       ; arsize : 'a [@bits 3]
       ; arburst : 'a [@bits 2]
-      ; rready : 'a
+      ; arlen : 'a [@bits 8] *)
       }
     [@@deriving hardcaml]
   end
