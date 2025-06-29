@@ -45,6 +45,7 @@ struct
     let%hw read_data =
       Simple_dual_port_ram.create
         ~simulation_name:"main_memory_bram"
+        ~byte_write_width:B8
         ~size:capacity_in_words
         ~build_mode
         ~clock
