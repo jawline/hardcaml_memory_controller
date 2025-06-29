@@ -6,6 +6,7 @@ open! Bits
 
 module Make_tests (C : sig
     val num_channels : int
+    val read_latency : int
   end) =
 struct
   let data_width = 32
@@ -47,7 +48,7 @@ struct
       let ram =
         Memory.hierarchical
           ~build_mode:Simulation
-          ~read_latency:1
+          ~read_latency:C.read_latency
           scope
           { Memory.I.clock; clear; memory }
       in
@@ -126,14 +127,15 @@ struct
       ch_tx.data.address := of_unsigned_int ~width:32 address;
       Cyclesim.cycle sim;
       if timeout = 0 then raise_s [%message "BUG: Timeout"];
-      if to_bool !(ch_rx_ack.ready) then () else wait_for_ready (timeout - 1)
+      if to_bool !(ch_rx_ack.ready) then (
+        ch_tx.valid := gnd; ()
+      ) else wait_for_ready (timeout - 1)
     in
     let rec wait_for_data timeout =
       if timeout = 0 then raise_s [%message "BUG: Timeout"];
       Cyclesim.cycle sim;
       if to_bool !(ch_rx.valid)
       then (
-        ch_tx.valid := gnd;
         to_int_trunc !(ch_rx.value.read_data))
       else wait_for_data (timeout - 1)
     in
@@ -190,14 +192,17 @@ end
 
 include Make_tests (struct
     let num_channels = 1
+    let read_latency = 2
   end)
 
 include Make_tests (struct
     let num_channels = 2
+    let read_latency = 2
   end)
 
 include Make_tests (struct
     let num_channels = 3
+    let read_latency = 2
   end)
 
 (* TODO: Add errors to the memory controller and report them via a side channel. *)

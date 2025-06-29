@@ -22,7 +22,7 @@ struct
     then
       raise_s
         [%message
-          "BUG: cannot request a capacity that is not a multiple of data_bus_width"]
+          "BUG: cannot request a capacity that is not a multiple of data_bus_width" (M.capacity_in_bytes : int) ( data_bus_in_bytes : int)]
   ;;
 
   let capacity_in_words = M.capacity_in_bytes / data_bus_in_bytes
@@ -41,12 +41,16 @@ struct
     [@@deriving hardcaml ~rtlmangle:"$"]
   end
 
+
   let create ~build_mode ~read_latency scope ({ clock; clear; memory } : _ I.t) =
     let reg_spec = Reg_spec.create ~clock ~clear () in
     let%hw read_data =
       Simple_dual_port_ram.create
         ~simulation_name:"main_memory_bram"
         ~byte_write_width:B8
+        ~arch:(Blockram Read_before_write)
+        ~address_collision_protection:Mux_output_ports
+        ~address_collision_model:Lfsr
         ~size:capacity_in_words
         ~build_mode
         ~clock
@@ -56,6 +60,7 @@ struct
         ~data:memory.wdata
         ~read_enable:memory.arvalid
         ~read_address:memory.araddr
+        ~read_latency
         ()
     in
     { O.memory =
