@@ -127,7 +127,7 @@ struct
         ; wdata = selected_write_ch.data.write_data
         ; wstrb = selected_write_ch.data.wstrb
         ; wlast = vdd
-        ; arvalid = selected_read_ch.valid &: ~:read_invalid 
+        ; arvalid = selected_read_ch.valid &: ~:read_invalid
         ; arid = uextend ~width:Axi4.O.port_widths.arid which_read_ch
         ; araddr = uresize ~width:Axi4.O.port_widths.araddr selected_read_ch.data.address
         ; rready = vdd

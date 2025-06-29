@@ -22,7 +22,9 @@ struct
     then
       raise_s
         [%message
-          "BUG: cannot request a capacity that is not a multiple of data_bus_width" (M.capacity_in_bytes : int) ( data_bus_in_bytes : int)]
+          "BUG: cannot request a capacity that is not a multiple of data_bus_width"
+            (M.capacity_in_bytes : int)
+            (data_bus_in_bytes : int)]
   ;;
 
   let capacity_in_words = M.capacity_in_bytes / data_bus_in_bytes
@@ -40,7 +42,6 @@ struct
     type 'a t = { memory : 'a Axi.I.t [@rtlprefix "memory_o$"] }
     [@@deriving hardcaml ~rtlmangle:"$"]
   end
-
 
   let create ~build_mode ~read_latency scope ({ clock; clear; memory } : _ I.t) =
     let reg_spec = Reg_spec.create ~clock ~clear () in
