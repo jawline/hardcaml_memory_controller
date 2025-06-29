@@ -37,7 +37,8 @@ struct
   end
 
   module O = struct
-    type 'a t = { memory : 'a Axi.I.t [@rtlprefix "memory_o$"] } [@@deriving hardcaml ~rtlmangle:"$"]
+    type 'a t = { memory : 'a Axi.I.t [@rtlprefix "memory_o$"] }
+    [@@deriving hardcaml ~rtlmangle:"$"]
   end
 
   let create ~build_mode ~read_latency scope ({ clock; clear; memory } : _ I.t) =
