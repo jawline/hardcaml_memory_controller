@@ -1,5 +1,6 @@
 open Core
 open Hardcaml
+open Signal
 open Hardcaml_custom_handshake
 
 module Make (M : sig
@@ -40,12 +41,16 @@ struct
     module With_valid = With_valid.Wrap.Make (T)
   end
 
+  let address_width = M.address_width
   let data_bus_width = M.data_bus_width
+  let data_bus_bytes = data_bus_width / 8
 
-  let address_is_word_aligned address =
-    let open Signal in
-    let unaligned_bits = Int.floor_log2 (M.data_bus_width / 8) in
-    address &:. unaligned_bits ==:. 0
+  let byte_address_to_memory_address address =
+    let aligned_top = drop_bottom ~width:(address_bits_for data_bus_bytes) address in
+    let misaligned_bottom = sel_bottom ~width:(address_bits_for data_bus_bytes) address in
+    { With_valid.valid = misaligned_bottom ==:. 0
+    ; value = uextend ~width:address_width aligned_top
+    }
   ;;
 
   module Read_bus = Handshake.Make (Read)

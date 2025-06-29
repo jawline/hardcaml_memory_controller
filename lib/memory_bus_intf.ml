@@ -27,8 +27,9 @@ module type S = sig
     module With_valid : With_valid.Wrap.S with type 'a value := 'a t
   end
 
+  val address_width : int
   val data_bus_width : int
-  val address_is_word_aligned : Signal.t -> Signal.t
+  val byte_address_to_memory_address : Signal.t -> Signal.t With_valid.t
 
   module Read_bus : Handshake_intf.S with type 'a data = 'a Read.t
   module Write_bus : Handshake_intf.S with type 'a data = 'a Write.t

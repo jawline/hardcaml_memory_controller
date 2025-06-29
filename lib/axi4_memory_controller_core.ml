@@ -31,11 +31,6 @@ struct
 
   let capacity_in_words = M.capacity_in_bytes / data_bus_in_bytes
 
-  (** There are two alignments of the base address. The base address is host addressed (bytes),
-      our core requires that memory be aligned to a word address (4 bytes / 8 bytes) and the AXI4
-      interface has a wider addressing scheme (usually 32 / 64 bytes). *)
-  let unaligned_bits_data_bus = address_bits_for (M.data_bus_width / 8)
-
   let () =
     if Config.data_width <> M.data_bus_width
     then
@@ -86,15 +81,9 @@ struct
     [@@deriving hardcaml ~rtlmangle:"$"]
   end
 
-  let real_address ~scope address =
-    let%hw base_address = address in
-    drop_bottom ~width:unaligned_bits_data_bus base_address
-  ;;
-
   let illegal_operation ~scope address =
-    let%hw is_unaligned = sel_bottom ~width:unaligned_bits_data_bus address <>:. 0 in
-    let%hw is_out_of_range = real_address ~scope address >=:. capacity_in_words in
-    is_unaligned |: is_out_of_range
+    let%hw is_out_of_range = address >=:. capacity_in_words in
+    is_out_of_range
   ;;
 
   let create
@@ -134,17 +123,13 @@ struct
     ; memory =
         { awvalid = selected_write_ch.valid &: ~:write_invalid
         ; awid = uextend ~width:Axi4.O.port_widths.awid which_write_ch
-        ; awaddr =
-            drop_bottom ~width:unaligned_bits_data_bus selected_write_ch.data.address
-            |> sel_bottom ~width:Axi4.O.port_widths.awaddr
+        ; awaddr = uresize ~width:Axi4.O.port_widths.awaddr selected_write_ch.data.address
         ; wdata = selected_write_ch.data.write_data
         ; wstrb = selected_write_ch.data.wstrb
         ; wlast = vdd
         ; arvalid = selected_read_ch.valid &: ~:read_invalid
         ; arid = uextend ~width:Axi4.O.port_widths.arid which_read_ch
-        ; araddr =
-            drop_bottom ~width:unaligned_bits_data_bus selected_read_ch.data.address
-            |> sel_bottom ~width:Axi4.O.port_widths.araddr
+        ; araddr = uresize ~width:Axi4.O.port_widths.araddr selected_read_ch.data.address
         ; rready = vdd
         }
     }

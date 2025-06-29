@@ -12,7 +12,7 @@ module Make (M : sig
 struct
   module Axi_config = struct
     let id_width = 8
-    let data_width = 32
+    let data_width = M.data_bus_width
     let addr_width = address_bits_for (M.capacity_in_bytes / (data_width / 8))
   end
 

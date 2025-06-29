@@ -8,9 +8,11 @@ module Make_tests (C : sig
     val num_channels : int
   end) =
 struct
+  let data_width = 32
+
   module Axi_config = struct
     let id_width = 8
-    let data_width = 32
+    let data_width = data_width
     let addr_width = address_bits_for (128 / (data_width / 8))
   end
 
@@ -31,7 +33,7 @@ struct
         let num_read_channels = C.num_channels
         let num_write_channels = C.num_channels
         let address_width = 32
-        let data_bus_width = 32
+        let data_bus_width = data_width
       end)
       (Axi_config)
       (Axi4)
@@ -156,7 +158,7 @@ struct
           Splittable_random.int ~lo:Int.min_value ~hi:Int.max_value random land 0xFFFFFFFF
         in
         let ch = Splittable_random.int ~lo:0 ~hi:(C.num_channels - 1) random in
-        let address = Splittable_random.int ~lo:0 ~hi:127 random land lnot 0b11 in
+        let address = Splittable_random.int ~lo:0 ~hi:(128 / data_width) random in
         write ~timeout:1000 ~address ~value:next ~ch sim;
         read_and_assert ~address ~value:next ~ch sim));
     [%expect {| |}]
