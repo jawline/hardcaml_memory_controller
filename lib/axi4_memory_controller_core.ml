@@ -29,8 +29,6 @@ struct
           "BUG: cannot request a capacity that is not a multiple of data_bus_width"]
   ;;
 
-  let capacity_in_words = M.capacity_in_bytes / data_bus_in_bytes
-
   let () =
     if Config.data_width <> M.data_bus_width
     then
@@ -81,15 +79,45 @@ struct
     [@@deriving hardcaml ~rtlmangle:"$"]
   end
 
-  let illegal_operation ~scope address =
-    let%hw is_out_of_range = address >=:. capacity_in_words in
-    is_out_of_range
+  let request_fifo ~clock ~clear ~wr ~d ~consume =
+    (* TODO: Make these cut through - it will notably improve memory latency. *)
+    let empty = wire 1 in
+    let fifo =
+      Fifo.create
+        ~clock
+        ~clear
+        ~read_latency:0
+        ~showahead:true
+        ~capacity:8
+        ~wr
+        ~d
+        ~rd:(consume &: ~:empty)
+        ()
+    in
+    empty <-- fifo.empty;
+    { With_valid.valid = ~:empty; value = fifo.q }, fifo.full
   ;;
+
+  module Address_and_channel_id = struct
+    type 'a t =
+      { address : 'a [@bits Memory_bus.Write_bus.Source.port_widths.data.address]
+      ; id : 'a [@bits I.port_widths.which_write_ch]
+      }
+    [@@deriving hardcaml]
+  end
+
+  module Data_and_wstrb = struct
+    type 'a t =
+      { data : 'a [@bits Memory_bus.Write_bus.Source.port_widths.data.write_data]
+      ; wstrb : 'a [@bits Memory_bus.Write_bus.Source.port_widths.data.wstrb]
+      }
+    [@@deriving hardcaml]
+  end
 
   let create
         scope
-        ({ clock = _
-         ; clear = _
+        ({ clock
+         ; clear
          ; which_read_ch
          ; selected_read_ch
          ; which_write_ch
@@ -98,8 +126,42 @@ struct
          } :
           _ I.t)
     =
-    let read_invalid = illegal_operation ~scope selected_read_ch.data.address in
-    let write_invalid = illegal_operation ~scope selected_write_ch.data.address in
+    (* AXI4 has separate channels for the write datas and write addresses. They
+       might not both go valid at the same time. For simplicity, we instantiate two
+       FIFOs (one for the address and the second for the data). We stop pushing
+       if either fifo is full. *)
+    let%hw both_fifos_have_capacity = wire 1 in
+    let address_fifo, address_fifo_full =
+      request_fifo
+        ~clock
+        ~clear
+        ~wr:(both_fifos_have_capacity &: selected_write_ch.valid)
+        ~d:
+          ({ Address_and_channel_id.address = selected_write_ch.data.address
+           ; id = which_write_ch
+           }
+           |> Address_and_channel_id.Of_signal.pack)
+        ~consume:memory.awready
+    in
+    let%hw.Address_and_channel_id.Of_signal address_fifo_data =
+      Address_and_channel_id.Of_signal.unpack address_fifo.value
+    in
+    let data_fifo, data_fifo_full =
+      request_fifo
+        ~clock
+        ~clear
+        ~wr:(both_fifos_have_capacity &: selected_write_ch.valid)
+        ~d:
+          ({ Data_and_wstrb.data = selected_write_ch.data.write_data
+           ; wstrb = selected_write_ch.data.wstrb
+           }
+           |> Data_and_wstrb.Of_signal.pack)
+        ~consume:memory.wready
+    in
+    let%hw.Data_and_wstrb.Of_signal data_fifo_data =
+      Data_and_wstrb.Of_signal.unpack data_fifo.value
+    in
+    both_fifos_have_capacity <-- (~:address_fifo_full &: ~:data_fifo_full);
     { O.read_response =
         List.init
           ~f:(fun channel ->
@@ -109,7 +171,9 @@ struct
             })
           M.num_read_channels
     ; read_ready = memory.rready
-    ; read_error = selected_read_ch.valid &: read_invalid
+    ; read_error =
+        gnd
+        (* TODO: We currently just get stuck if an error occurs. Instead, upstream sanitizer? *)
     ; write_response =
         List.init
           ~f:(fun channel ->
@@ -118,16 +182,19 @@ struct
             ; value = { Write_response.dummy = gnd }
             })
           M.num_write_channels
-    ; write_ready = memory.wready
-    ; write_error = selected_write_ch.valid
+    ; write_ready = both_fifos_have_capacity
+    ; write_error =
+        gnd
+        (* TODO: We currently just get stuck if an error occurs. Instead, upstream sanitizer? *)
     ; memory =
-        { awvalid = selected_write_ch.valid &: ~:write_invalid
-        ; awid = uextend ~width:Axi4.O.port_widths.awid which_write_ch
-        ; awaddr = uresize ~width:Axi4.O.port_widths.awaddr selected_write_ch.data.address
-        ; wdata = selected_write_ch.data.write_data
-        ; wstrb = selected_write_ch.data.wstrb
+        { wvalid = data_fifo.valid
+        ; awvalid = address_fifo.valid
+        ; awid = uextend ~width:Axi4.O.port_widths.awid address_fifo_data.id
+        ; awaddr = uresize ~width:Axi4.O.port_widths.awaddr address_fifo_data.address
+        ; wdata = data_fifo_data.data
+        ; wstrb = data_fifo_data.wstrb
         ; wlast = vdd
-        ; arvalid = selected_read_ch.valid &: ~:read_invalid
+        ; arvalid = selected_read_ch.valid
         ; arid = uextend ~width:Axi4.O.port_widths.arid which_read_ch
         ; araddr = uresize ~width:Axi4.O.port_widths.araddr selected_read_ch.data.address
         ; rready = vdd

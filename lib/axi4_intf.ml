@@ -3,6 +3,7 @@ module M (Config : Axi4_config_intf.Config) = struct
     module I : sig
       type 'a t =
         { bvalid : 'a
+        ; awready : 'a
         ; wready : 'a
         ; bid : 'a
         ; bresp : 'a
@@ -18,7 +19,8 @@ module M (Config : Axi4_config_intf.Config) = struct
 
     module O : sig
       type 'a t =
-        { awvalid : 'a
+        { wvalid : 'a
+        ; awvalid : 'a
         ; awid : 'a
         ; awaddr : 'a
         ; wdata : 'a

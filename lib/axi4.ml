@@ -4,6 +4,7 @@ module Make (Config : Axi4_config_intf.Config) = struct
   module I = struct
     type 'a t =
       { bvalid : 'a
+      ; awready : 'a
       ; wready : 'a
       ; bid : 'a [@bits id_width]
       ; bresp : 'a [@bits 2]
@@ -19,7 +20,8 @@ module Make (Config : Axi4_config_intf.Config) = struct
 
   module O = struct
     type 'a t =
-      { awvalid : 'a
+      { wvalid : 'a
+      ; awvalid : 'a
       ; awid : 'a [@bits id_width]
       ; awaddr : 'a [@bits addr_width]
       ; wdata : 'a [@bits data_width]

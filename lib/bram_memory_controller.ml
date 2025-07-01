@@ -22,6 +22,7 @@ struct
     Axi4_bram.Make
       (struct
         let capacity_in_bytes = M.capacity_in_bytes
+        let synthetic_pushback = 0
       end)
       (Axi_config)
       (Axi4)

@@ -6,6 +6,7 @@ open Signal
 module Make
     (M : sig
        val capacity_in_bytes : int
+       val synthetic_pushback : int
      end)
     (Axi_config : Axi4_config_intf.Config)
     (Axi : Axi4_intf.M(Axi_config).S) =
@@ -45,6 +46,17 @@ struct
 
   let create ~build_mode ~read_latency scope ({ clock; clear; memory } : _ I.t) =
     let reg_spec = Reg_spec.create ~clock ~clear () in
+    (* Synthetic pushback mechanism for testing. Raises ready only once in M.synthetic_pushback cycles. *)
+    let%hw should_push_back =
+      if M.synthetic_pushback > 0
+      then
+        reg_fb
+          ~width:(address_bits_for M.synthetic_pushback)
+          ~f:(fun t -> mod_counter ~max:(M.synthetic_pushback - 1) t)
+          reg_spec
+        <>:. 0
+      else gnd
+    in
     let%hw read_data =
       Simple_dual_port_ram.create
         ~simulation_name:"main_memory_bram"
@@ -65,15 +77,16 @@ struct
         ()
     in
     { O.memory =
-        { Axi.I.bvalid = reg reg_spec memory.awvalid
+        { Axi.I.bvalid = reg reg_spec (memory.awvalid &: ~:should_push_back)
         ; bid = reg reg_spec memory.awid
         ; bresp = zero 2
-        ; rvalid = pipeline ~n:read_latency reg_spec memory.arvalid
+        ; rvalid = pipeline ~n:read_latency reg_spec (memory.arvalid &: ~:should_push_back)
         ; rid = pipeline ~n:read_latency reg_spec memory.arid
         ; rdata = read_data
         ; rresp = zero 2
-        ; wready = vdd
-        ; rready = vdd
+        ; wready = ~:should_push_back
+        ; awready = ~:should_push_back
+        ; rready = ~:should_push_back
         ; rlast = vdd
         }
     }

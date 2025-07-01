@@ -4,9 +4,12 @@ open Hardcaml_test_harness
 open Hardcaml_memory_controller
 open! Bits
 
+let debug = true
+
 module Make_tests (C : sig
     val num_channels : int
     val read_latency : int
+    val synthetic_pushback : int
   end) =
 struct
   let data_width = 32
@@ -23,6 +26,7 @@ struct
     Axi4_bram.Make
       (struct
         let capacity_in_bytes = 128
+        let synthetic_pushback = C.synthetic_pushback
       end)
       (Axi_config)
       (Axi4)
@@ -72,7 +76,10 @@ struct
   module Harness = Cyclesim_harness.Make (Machine.I) (Machine.O)
 
   let create_sim f =
-    Harness.run ~waves_config:Waves_config.No_waves ~create:Machine.hierarchical f
+    Harness.run
+      ~waves_config:(if debug then Waves_config.to_home_subdirectory () else No_waves)
+      ~create:Machine.hierarchical
+      f
   ;;
 
   let rec wait_for_write_ack ~timeout ~ch sim =
@@ -150,10 +157,11 @@ struct
     then print_s [%message "BUG: Expected" (result : int) "received" (value : int)]
   ;;
 
-  let debug = true
-
   let%expect_test "read/write" =
-    create_sim (fun ~inputs:_ ~outputs:_ sim ->
+    create_sim (fun ~inputs ~outputs:_ sim ->
+      inputs.clear := vdd;
+      Cyclesim.cycle sim;
+      inputs.clear := gnd;
       let random = Splittable_random.of_int 1 in
       Sequence.range 0 1000
       |> Sequence.iter ~f:(fun _ ->
@@ -194,21 +202,25 @@ end
 include Make_tests (struct
     let num_channels = 1
     let read_latency = 2
+    let synthetic_pushback = 1
   end)
 
 include Make_tests (struct
     let num_channels = 2
     let read_latency = 1
+    let synthetic_pushback = 7
   end)
 
 include Make_tests (struct
     let num_channels = 3
     let read_latency = 5
+    let synthetic_pushback = 0
   end)
 
 include Make_tests (struct
     let num_channels = 7
     let read_latency = 19
+    let synthetic_pushback = 4
   end)
 
 (* TODO: Add errors to the memory controller and report them via a side channel. *)
