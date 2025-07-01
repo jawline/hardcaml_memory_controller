@@ -57,6 +57,16 @@ struct
         <>:. 0
       else gnd
     in
+    let%hw read_address_in_range =
+      if Int.pow 2 (width memory.araddr) <= capacity_in_words
+      then vdd
+      else memory.araddr <:. capacity_in_words
+    in
+    let%hw write_address_in_range =
+      if Int.pow 2 (width memory.awaddr) <= capacity_in_words
+      then vdd
+      else memory.awaddr <:. capacity_in_words
+    in
     let%hw read_data =
       Simple_dual_port_ram.create
         ~simulation_name:"main_memory_bram"
@@ -68,7 +78,11 @@ struct
         ~build_mode
         ~clock
         ~clear
-        ~write_enable:(repeat ~count:(width memory.wstrb) memory.awvalid &: memory.wstrb)
+        ~write_enable:
+          (repeat
+             ~count:(width memory.wstrb)
+             (memory.awvalid &: write_address_in_range &: ~:should_push_back)
+           &: memory.wstrb)
         ~write_address:memory.awaddr
         ~data:memory.wdata
         ~read_enable:memory.arvalid
@@ -82,7 +96,12 @@ struct
         ; bresp = zero 2
         ; rvalid = pipeline ~n:read_latency reg_spec (memory.arvalid &: ~:should_push_back)
         ; rid = pipeline ~n:read_latency reg_spec memory.arid
-        ; rdata = read_data
+        ; rdata =
+            pipeline
+              ~n:read_latency
+              reg_spec
+              (repeat ~count:(width read_data) read_address_in_range)
+            &: read_data
         ; rresp = zero 2
         ; wready = ~:should_push_back
         ; awready = ~:should_push_back

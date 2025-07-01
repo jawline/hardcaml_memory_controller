@@ -59,12 +59,10 @@ struct
   end
 
   let create
-        ~request_delay
         ~priority_mode
         scope
         ({ clock; clear; write_to_controller; read_to_controller; memory } : _ I.t)
     =
-    let reg_spec_no_clear = Reg_spec.create ~clock () in
     let write_arbitrator =
       Write_arbitrator.hierarchical
         ~instance:"write"
@@ -84,20 +82,10 @@ struct
         scope
         { Core.I.clock
         ; clear
-        ; which_write_ch =
-            pipeline ~n:request_delay reg_spec_no_clear write_arbitrator.which_ch
-        ; selected_write_ch =
-            Write_bus.Source.Of_signal.pipeline
-              ~n:request_delay
-              reg_spec_no_clear
-              write_arbitrator.selected_ch
-        ; which_read_ch =
-            pipeline ~n:request_delay reg_spec_no_clear read_arbitrator.which_ch
-        ; selected_read_ch =
-            Read_bus.Source.Of_signal.pipeline
-              ~n:request_delay
-              reg_spec_no_clear
-              read_arbitrator.selected_ch
+        ; which_write_ch = write_arbitrator.which_ch
+        ; selected_write_ch = write_arbitrator.selected_ch
+        ; which_read_ch = read_arbitrator.which_ch
+        ; selected_read_ch = read_arbitrator.selected_ch
         ; memory
         }
     in
@@ -116,12 +104,8 @@ struct
     }
   ;;
 
-  let hierarchical ~request_delay ~priority_mode (scope : Scope.t) (input : Signal.t I.t) =
+  let hierarchical ~priority_mode (scope : Scope.t) (input : Signal.t I.t) =
     let module H = Hierarchy.In_scope (I) (O) in
-    H.hierarchical
-      ~scope
-      ~name:"memory_controller"
-      (create ~priority_mode ~request_delay)
-      input
+    H.hierarchical ~scope ~name:"memory_controller" (create ~priority_mode) input
   ;;
 end

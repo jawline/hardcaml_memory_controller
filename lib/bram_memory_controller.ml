@@ -55,7 +55,6 @@ struct
   let create
         ~build_mode
         ~read_latency
-        ~request_delay
         ~priority_mode
         scope
         ({ clock; clear; write_to_controller; read_to_controller } : _ I.t)
@@ -70,7 +69,6 @@ struct
     in
     let core =
       Memory_controller.hierarchical
-        ~request_delay
         ~priority_mode
         scope
         { Memory_controller.I.clock
@@ -91,7 +89,6 @@ struct
   let hierarchical
         ~build_mode
         ~read_latency
-        ~request_delay
         ~priority_mode
         (scope : Scope.t)
         (input : Signal.t I.t)
@@ -100,7 +97,7 @@ struct
     H.hierarchical
       ~scope
       ~name:"bram_memory_controller"
-      (create ~build_mode ~read_latency ~priority_mode ~request_delay)
+      (create ~build_mode ~read_latency ~priority_mode)
       input
   ;;
 end

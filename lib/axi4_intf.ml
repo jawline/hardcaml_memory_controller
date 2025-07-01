@@ -30,6 +30,7 @@ module M (Config : Axi4_config_intf.Config) = struct
         ; arid : 'a
         ; araddr : 'a
         ; rready : 'a
+        ; bready : 'a
         }
       [@@deriving hardcaml]
     end

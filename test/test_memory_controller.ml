@@ -4,7 +4,7 @@ open Hardcaml_test_harness
 open Hardcaml_memory_controller
 open! Bits
 
-let debug = true
+let debug = false
 
 module Make_tests (C : sig
     val num_channels : int
@@ -59,7 +59,6 @@ struct
       let ctrl =
         Memory_controller.hierarchical
           ~priority_mode:Priority_order
-          ~request_delay:1
           scope
           { i with memory = ram.memory }
       in
@@ -172,7 +171,21 @@ struct
         let address = Splittable_random.int ~lo:0 ~hi:(128 / data_width) random in
         write ~timeout:1000 ~address ~value:next ~ch sim;
         read_and_assert ~address ~value:next ~ch sim));
-    [%expect {| |}]
+    [%expect
+      {|
+      (* CR expect_test: Test ran multiple times with different test outputs *)
+      ============================= Output 1 / 4 ==============================
+      Saved waves to /home/blake/waves//_read_write.hardcamlwaveform
+
+      ============================= Output 2 / 4 ==============================
+      Saved waves to /home/blake/waves//_read_write_1.hardcamlwaveform
+
+      ============================= Output 3 / 4 ==============================
+      Saved waves to /home/blake/waves//_read_write_2.hardcamlwaveform
+
+      ============================= Output 4 / 4 ==============================
+      Saved waves to /home/blake/waves//_read_write_3.hardcamlwaveform
+      |}]
   ;;
 
   (* TODO: Fix error reporting 

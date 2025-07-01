@@ -43,7 +43,6 @@ module Make (M : sig
   val hierarchical
     :  build_mode:Build_mode.t
     -> read_latency:int
-    -> request_delay:int
     -> priority_mode:Priority_mode.t
     -> Scope.t
     -> Signal.t I.t

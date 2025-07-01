@@ -31,6 +31,7 @@ module Make (Config : Axi4_config_intf.Config) = struct
       ; arid : 'a [@bits id_width]
       ; araddr : 'a [@bits addr_width]
       ; rready : 'a
+      ; bready : 'a
         (* We currently don't support bursts so these fields are unused. Implementors should always set size of one and length of bus width. 
       ; awsize : 'a [@bits 3]
       ; awburst : 'a [@bits 2]

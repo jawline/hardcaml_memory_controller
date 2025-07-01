@@ -162,6 +162,18 @@ struct
       Data_and_wstrb.Of_signal.unpack data_fifo.value
     in
     both_fifos_have_capacity <-- (~:address_fifo_full &: ~:data_fifo_full);
+    (* TODO: This is ugly, we need to guard against the address being legal
+       when pushing it to the memory controller. This mostly just matters for
+       tests, as illegal reads are undefined in our core. 
+    
+      Instead, what I think we should do here is have an axi4_downcast shim
+      that is capable of taking a wider address range and signalling error. *)
+    let%hw no_bits_out_of_range_write =
+      drop_bottom ~width:Axi4.O.port_widths.awaddr address_fifo_data.address ==:. 0
+    in
+    let%hw no_bits_out_of_range_read =
+      drop_bottom ~width:Axi4.O.port_widths.araddr selected_read_ch.data.address ==:. 0
+    in
     { O.read_response =
         List.init
           ~f:(fun channel ->
@@ -171,9 +183,7 @@ struct
             })
           M.num_read_channels
     ; read_ready = memory.rready
-    ; read_error =
-        gnd
-        (* TODO: We currently just get stuck if an error occurs. Instead, upstream sanitizer? *)
+    ; read_error = gnd
     ; write_response =
         List.init
           ~f:(fun channel ->
@@ -183,21 +193,21 @@ struct
             })
           M.num_write_channels
     ; write_ready = both_fifos_have_capacity
-    ; write_error =
-        gnd
-        (* TODO: We currently just get stuck if an error occurs. Instead, upstream sanitizer? *)
+    ; write_error = gnd
     ; memory =
         { wvalid = data_fifo.valid
-        ; awvalid = address_fifo.valid
+        ; awvalid = address_fifo.valid &: no_bits_out_of_range_write
         ; awid = uextend ~width:Axi4.O.port_widths.awid address_fifo_data.id
-        ; awaddr = uresize ~width:Axi4.O.port_widths.awaddr address_fifo_data.address
+        ; awaddr = sel_bottom ~width:Axi4.O.port_widths.awaddr address_fifo_data.address
         ; wdata = data_fifo_data.data
         ; wstrb = data_fifo_data.wstrb
         ; wlast = vdd
-        ; arvalid = selected_read_ch.valid
+        ; arvalid = selected_read_ch.valid &: no_bits_out_of_range_read
         ; arid = uextend ~width:Axi4.O.port_widths.arid which_read_ch
-        ; araddr = uresize ~width:Axi4.O.port_widths.araddr selected_read_ch.data.address
+        ; araddr =
+            sel_bottom ~width:Axi4.O.port_widths.araddr selected_read_ch.data.address
         ; rready = vdd
+        ; bready = vdd
         }
     }
   ;;

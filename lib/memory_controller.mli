@@ -42,8 +42,7 @@ module Make
   end
 
   val hierarchical
-    :  request_delay:int
-    -> priority_mode:Priority_mode.t
+    :  priority_mode:Priority_mode.t
     -> Scope.t
     -> Signal.t I.t
     -> Signal.t O.t
