@@ -14,8 +14,7 @@ module Make
        val num_write_channels : int
        val data_bus_width : int
      end)
-    (Config : Axi4_config_intf.Config)
-    (Axi4 : Axi4_intf.M(Config).S) : sig
+    (Axi4 : Axi4.S) : sig
   module I : sig
     type 'a t =
       { clock : 'a

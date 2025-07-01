@@ -1,7 +1,12 @@
 (library
  (name hardcaml_memory_controller)
  (public_name hardcaml_memory_controller)
- (libraries hardcaml hardcaml_xilinx hardcaml_custom_handshake core)
+ (libraries
+  hardcaml
+  hardcaml_axi
+  hardcaml_xilinx
+  hardcaml_custom_handshake
+  core)
  (inline_tests)
  (preprocess
   (pps ppx_jane ppx_hardcaml ppx_deriving.show ppx_deriving.ord ppx_expect)))

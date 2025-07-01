@@ -1,1 +1,5 @@
-module Make (Config : Axi4_config_intf.Config) : Axi4_intf.M(Config).S
+open Hardcaml_axi
+
+module type S = Axi4_intf.S
+
+module Make (Config : Axi4_xilinx.Config) : Axi4_intf.S

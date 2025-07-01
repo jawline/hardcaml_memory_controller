@@ -9,8 +9,7 @@ module Make
        val address_width : int
        val data_bus_width : int
      end)
-    (Axi_config : Axi4_config_intf.Config)
-    (Axi : Axi4_intf.M(Axi_config).S) : sig
+    (Axi : Axi4.S) : sig
   module Memory_bus : Memory_bus_intf.S
 
   module I : sig

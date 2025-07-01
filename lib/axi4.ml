@@ -1,45 +1,12 @@
-module Make (Config : Axi4_config_intf.Config) = struct
-  open Config
+open Hardcaml_axi
 
-  module I = struct
-    type 'a t =
-      { bvalid : 'a
-      ; awready : 'a
-      ; wready : 'a
-      ; bid : 'a [@bits id_width]
-      ; bresp : 'a [@bits 2]
-      ; rvalid : 'a
-      ; rid : 'a [@bits id_width]
-      ; rdata : 'a [@bits data_width]
-      ; rresp : 'a [@bits 2]
-      ; rlast : 'a [@bits 1]
-      ; rready : 'a
-      }
-    [@@deriving hardcaml]
-  end
+module type S = Axi4_intf.S
 
-  module O = struct
-    type 'a t =
-      { wvalid : 'a
-      ; awvalid : 'a
-      ; awid : 'a [@bits id_width]
-      ; awaddr : 'a [@bits addr_width]
-      ; wdata : 'a [@bits data_width]
-      ; wstrb : 'a [@bits data_width / 8]
-      ; wlast : 'a
-      ; arvalid : 'a
-      ; arid : 'a [@bits id_width]
-      ; araddr : 'a [@bits addr_width]
-      ; rready : 'a
-      ; bready : 'a
-        (* We currently don't support bursts so these fields are unused. Implementors should always set size of one and length of bus width. 
-      ; awsize : 'a [@bits 3]
-      ; awburst : 'a [@bits 2]
-      ; awlena : 'a [@bits 8]
-      ; arsize : 'a [@bits 3]
-      ; arburst : 'a [@bits 2]
-      ; arlen : 'a [@bits 8] *)
-      }
-    [@@deriving hardcaml]
-  end
+module Make (Config : Axi4_xilinx.Config) = struct
+  let address_width = Config.addr_bits
+  let data_width = Config.data_bits
+  let id_width = Config.id_bits
+
+  module I = Axi4_xilinx.Slave_to_master (Config)
+  module O = Axi4_xilinx.Master_to_slave (Config)
 end

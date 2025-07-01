@@ -10,8 +10,7 @@ module Make
        val num_write_channels : int
        val data_bus_width : int
      end)
-    (Config : Axi4_config_intf.Config)
-    (Axi4 : Axi4_intf.M(Config).S) =
+    (Axi4 : Axi4.S) =
 struct
   open Memory_bus
 
@@ -30,20 +29,20 @@ struct
   ;;
 
   let () =
-    if Config.data_width <> M.data_bus_width
+    if Axi4.data_width <> M.data_bus_width
     then
       raise_s
         [%message "BUG: currently bus widths different to axi width are not supported"]
   ;;
 
   let () =
-    if Config.id_width < M.num_read_channels
+    if Axi4.id_width < M.num_read_channels
     then
       raise_s
         [%message
           "BUG: The AXI4 MIG config should have an ID width large enough to address each \
            read channel"];
-    if Config.id_width < M.num_write_channels
+    if Axi4.id_width < M.num_write_channels
     then
       raise_s
         [%message
@@ -114,6 +113,30 @@ struct
     [@@deriving hardcaml]
   end
 
+  let fixed_burst = of_unsigned_int ~width:Axi4.O.port_widths.awburst 0
+
+  let burst_size =
+    of_unsigned_int
+      ~width:Axi4.O.port_widths.awsize
+      (match Axi4.data_width with
+       | 32 -> 0b101
+       | _ -> raise_s [%message "BUG: Unimplemented conversion"])
+  ;;
+
+  (* We send a single entry for all burst lengths. This is 0 (as the length is defined as field + 1). *)
+  let burst_length = of_unsigned_int ~width:Axi4.O.port_widths.awlen 0
+
+  (* Axi4 is byte addressed. Internally in this core we only support data_width
+     addressing, so we need to cast the data width address to a byte address.
+     *)
+  let translate_to_axi_byte_address t =
+    let data_width = Axi4.data_width / 8 in
+    let word_address_bits =
+      sel_bottom ~width:(Axi4.O.port_widths.araddr - address_bits_for data_width) t
+    in
+    concat_lsb [ word_address_bits; zero (address_bits_for data_width) ]
+  ;;
+
   let create
         scope
         ({ clock
@@ -182,7 +205,7 @@ struct
             ; value = { Read_response.read_data = memory.rdata }
             })
           M.num_read_channels
-    ; read_ready = memory.rready
+    ; read_ready = memory.arready
     ; read_error = gnd
     ; write_response =
         List.init
@@ -198,16 +221,21 @@ struct
         { wvalid = data_fifo.valid
         ; awvalid = address_fifo.valid &: no_bits_out_of_range_write
         ; awid = uextend ~width:Axi4.O.port_widths.awid address_fifo_data.id
-        ; awaddr = sel_bottom ~width:Axi4.O.port_widths.awaddr address_fifo_data.address
+        ; awaddr = translate_to_axi_byte_address address_fifo_data.address
         ; wdata = data_fifo_data.data
         ; wstrb = data_fifo_data.wstrb
         ; wlast = vdd
+        ; awburst = fixed_burst
+        ; awlen = burst_length
+        ; awsize = burst_size
         ; arvalid = selected_read_ch.valid &: no_bits_out_of_range_read
         ; arid = uextend ~width:Axi4.O.port_widths.arid which_read_ch
-        ; araddr =
-            sel_bottom ~width:Axi4.O.port_widths.araddr selected_read_ch.data.address
+        ; araddr = translate_to_axi_byte_address selected_read_ch.data.address
         ; rready = vdd
         ; bready = vdd
+        ; arburst = fixed_burst
+        ; arlen = burst_length
+        ; arsize = burst_size
         }
     }
   ;;

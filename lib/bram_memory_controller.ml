@@ -11,9 +11,10 @@ module Make (M : sig
   end) =
 struct
   module Axi_config = struct
-    let id_width = 8
-    let data_width = M.data_bus_width
-    let addr_width = address_bits_for (M.capacity_in_bytes / (data_width / 8))
+    let id_bits = 8
+    let data_bits = M.data_bus_width
+    let addr_bits = address_bits_for (M.capacity_in_bytes / (data_bits / 8))
+    let burst_length_bits = 1
   end
 
   module Axi4 = Axi4.Make (Axi_config)
@@ -24,10 +25,9 @@ struct
         let capacity_in_bytes = M.capacity_in_bytes
         let synthetic_pushback = 0
       end)
-      (Axi_config)
       (Axi4)
 
-  module Memory_controller = Memory_controller.Make (M) (Axi_config) (Axi4)
+  module Memory_controller = Memory_controller.Make (M) (Axi4)
   module Memory_bus = Memory_controller.Memory_bus
   open Memory_bus
 

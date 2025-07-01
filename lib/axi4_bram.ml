@@ -8,27 +8,25 @@ module Make
        val capacity_in_bytes : int
        val synthetic_pushback : int
      end)
-    (Axi_config : Axi4_config_intf.Config)
-    (Axi : Axi4_intf.M(Axi_config).S) =
+    (Axi : Axi4.S) =
 struct
   let () =
-    if Axi_config.data_width % 8 <> 0
-    then raise_s [%message "BUG: data bus must be in bytes"]
+    if Axi.data_width % 8 <> 0 then raise_s [%message "BUG: data bus must be in bytes"]
   ;;
 
-  let data_bus_in_bytes = Axi_config.data_width / 8
+  let data_width_bytes = Axi.data_width / 8
 
   let () =
-    if M.capacity_in_bytes % data_bus_in_bytes <> 0
+    if M.capacity_in_bytes % data_width_bytes <> 0
     then
       raise_s
         [%message
-          "BUG: cannot request a capacity that is not a multiple of data_bus_width"
+          "BUG: cannot request a capacity that is not a multiple of data_width_bytes"
             (M.capacity_in_bytes : int)
-            (data_bus_in_bytes : int)]
+            (data_width_bytes : int)]
   ;;
 
-  let capacity_in_words = M.capacity_in_bytes / data_bus_in_bytes
+  let capacity_in_words = M.capacity_in_bytes / data_width_bytes
 
   module I = struct
     type 'a t =
@@ -83,10 +81,12 @@ struct
              ~count:(width memory.wstrb)
              (memory.awvalid &: write_address_in_range &: ~:should_push_back)
            &: memory.wstrb)
-        ~write_address:memory.awaddr
+        ~write_address:
+          (drop_bottom ~width:(address_bits_for data_width_bytes) memory.awaddr)
         ~data:memory.wdata
-        ~read_enable:memory.arvalid
-        ~read_address:memory.araddr
+        ~read_enable:
+          ( memory.arvalid)
+        ~read_address:( drop_bottom ~width:(address_bits_for data_width_bytes) memory.araddr)
         ~read_latency
         ()
     in
@@ -105,7 +105,7 @@ struct
         ; rresp = zero 2
         ; wready = ~:should_push_back
         ; awready = ~:should_push_back
-        ; rready = ~:should_push_back
+        ; arready = ~:should_push_back
         ; rlast = vdd
         }
     }

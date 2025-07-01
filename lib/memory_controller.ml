@@ -10,8 +10,7 @@ module Make
        val num_write_channels : int
        val address_width : int
      end)
-    (Axi_config : Axi4_config_intf.Config)
-    (Axi : Axi4_intf.M(Axi_config).S) =
+    (Axi : Axi4.S) =
 struct
   module Memory_bus = Memory_bus.Make (struct
       include M
@@ -33,7 +32,7 @@ struct
         let num_channels = M.num_write_channels
       end)
 
-  module Core = Axi4_memory_controller_core.Make (Memory_bus) (M) (Axi_config) (Axi)
+  module Core = Axi4_memory_controller_core.Make (Memory_bus) (M) (Axi)
 
   module I = struct
     type 'a t =

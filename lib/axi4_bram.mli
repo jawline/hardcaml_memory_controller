@@ -6,8 +6,7 @@ module Make
        val capacity_in_bytes : int
        val synthetic_pushback : int
      end)
-    (Axi_config : Axi4_config_intf.Config)
-    (Axi : Axi4_intf.M(Axi_config).S) : sig
+    (Axi : Axi4.S) : sig
   module I : sig
     type 'a t =
       { clock : 'a

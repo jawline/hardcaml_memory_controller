@@ -15,9 +15,10 @@ struct
   let data_width = 32
 
   module Axi_config = struct
-    let id_width = 8
-    let data_width = data_width
-    let addr_width = address_bits_for (128 / (data_width / 8))
+    let id_bits = 8
+    let data_bits = data_width
+    let addr_bits = address_bits_for (128 )
+    let burst_length_bits = 1
   end
 
   module Axi4 = Axi4.Make (Axi_config)
@@ -28,7 +29,6 @@ struct
         let capacity_in_bytes = 128
         let synthetic_pushback = C.synthetic_pushback
       end)
-      (Axi_config)
       (Axi4)
 
   module Memory_controller =
@@ -40,7 +40,6 @@ struct
         let address_width = 32
         let data_bus_width = data_width
       end)
-      (Axi_config)
       (Axi4)
 
   module Machine = struct
@@ -172,20 +171,7 @@ struct
         write ~timeout:1000 ~address ~value:next ~ch sim;
         read_and_assert ~address ~value:next ~ch sim));
     [%expect
-      {|
-      (* CR expect_test: Test ran multiple times with different test outputs *)
-      ============================= Output 1 / 4 ==============================
-      Saved waves to /home/blake/waves//_read_write.hardcamlwaveform
-
-      ============================= Output 2 / 4 ==============================
-      Saved waves to /home/blake/waves//_read_write_1.hardcamlwaveform
-
-      ============================= Output 3 / 4 ==============================
-      Saved waves to /home/blake/waves//_read_write_2.hardcamlwaveform
-
-      ============================= Output 4 / 4 ==============================
-      Saved waves to /home/blake/waves//_read_write_3.hardcamlwaveform
-      |}]
+      {| |}]
   ;;
 
   (* TODO: Fix error reporting 
