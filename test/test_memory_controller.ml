@@ -17,7 +17,7 @@ struct
   module Axi_config = struct
     let id_bits = 8
     let data_bits = data_width
-    let addr_bits = address_bits_for (128 )
+    let addr_bits = address_bits_for 128
     let burst_length_bits = 1
   end
 
@@ -170,8 +170,7 @@ struct
         let address = Splittable_random.int ~lo:0 ~hi:(128 / data_width) random in
         write ~timeout:1000 ~address ~value:next ~ch sim;
         read_and_assert ~address ~value:next ~ch sim));
-    [%expect
-      {| |}]
+    [%expect {| |}]
   ;;
 
   (* TODO: Fix error reporting 

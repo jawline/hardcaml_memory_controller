@@ -55,15 +55,21 @@ struct
         <>:. 0
       else gnd
     in
+    let%hw read_address =
+      drop_bottom ~width:(address_bits_for data_width_bytes) memory.araddr
+    in
+    let%hw write_address =
+      drop_bottom ~width:(address_bits_for data_width_bytes) memory.awaddr
+    in
     let%hw read_address_in_range =
-      if Int.pow 2 (width memory.araddr) <= capacity_in_words
+      if Int.pow 2 (width read_address) <= capacity_in_words
       then vdd
-      else memory.araddr <:. capacity_in_words
+      else read_address <:. capacity_in_words
     in
     let%hw write_address_in_range =
-      if Int.pow 2 (width memory.awaddr) <= capacity_in_words
+      if Int.pow 2 (width write_address) <= capacity_in_words
       then vdd
-      else memory.awaddr <:. capacity_in_words
+      else write_address <:. capacity_in_words
     in
     let%hw read_data =
       Simple_dual_port_ram.create
@@ -81,12 +87,10 @@ struct
              ~count:(width memory.wstrb)
              (memory.awvalid &: write_address_in_range &: ~:should_push_back)
            &: memory.wstrb)
-        ~write_address:
-          (drop_bottom ~width:(address_bits_for data_width_bytes) memory.awaddr)
+        ~write_address
         ~data:memory.wdata
-        ~read_enable:
-          ( memory.arvalid)
-        ~read_address:( drop_bottom ~width:(address_bits_for data_width_bytes) memory.araddr)
+        ~read_enable:memory.arvalid
+        ~read_address
         ~read_latency
         ()
     in

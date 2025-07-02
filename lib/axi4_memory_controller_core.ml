@@ -116,10 +116,18 @@ struct
   let fixed_burst = of_unsigned_int ~width:Axi4.O.port_widths.awburst 0
 
   let burst_size =
+    let bytes_in_transfer = data_bus_in_bytes in
     of_unsigned_int
       ~width:Axi4.O.port_widths.awsize
-      (match Axi4.data_width with
+      (match bytes_in_transfer with
+       | 1 -> 0b000
+       | 2 -> 0b001
+       | 4 -> 0b010
+       | 8 -> 0b011
+       | 16 -> 0b100
        | 32 -> 0b101
+       | 64 -> 0b110
+       | 128 -> 0b111
        | _ -> raise_s [%message "BUG: Unimplemented conversion"])
   ;;
 
@@ -127,14 +135,13 @@ struct
   let burst_length = of_unsigned_int ~width:Axi4.O.port_widths.awlen 0
 
   (* Axi4 is byte addressed. Internally in this core we only support data_width
-     addressing, so we need to cast the data width address to a byte address.
-     *)
+     addressing, so we need to cast the data width address to a byte address. *)
   let translate_to_axi_byte_address t =
     let data_width = Axi4.data_width / 8 in
     let word_address_bits =
       sel_bottom ~width:(Axi4.O.port_widths.araddr - address_bits_for data_width) t
     in
-    concat_lsb [ word_address_bits; zero (address_bits_for data_width) ]
+    concat_msb [ word_address_bits; zero (address_bits_for data_width) ]
   ;;
 
   let create
@@ -185,17 +192,27 @@ struct
       Data_and_wstrb.Of_signal.unpack data_fifo.value
     in
     both_fifos_have_capacity <-- (~:address_fifo_full &: ~:data_fifo_full);
+    let%hw write_address_in_bytes =
+      translate_to_axi_byte_address address_fifo_data.address
+    in
+    let%hw read_address_in_bytes =
+      translate_to_axi_byte_address selected_read_ch.data.address
+    in
     (* TODO: This is ugly, we need to guard against the address being legal
        when pushing it to the memory controller. This mostly just matters for
        tests, as illegal reads are undefined in our core. 
     
       Instead, what I think we should do here is have an axi4_downcast shim
       that is capable of taking a wider address range and signalling error. *)
+    let excess_bits_in_address =
+      Int.abs
+        (address_width - (Axi4.O.port_widths.awaddr - address_bits_for data_bus_in_bytes))
+    in
     let%hw no_bits_out_of_range_write =
-      drop_bottom ~width:Axi4.O.port_widths.awaddr address_fifo_data.address ==:. 0
+      sel_top ~width:excess_bits_in_address address_fifo_data.address ==:. 0
     in
     let%hw no_bits_out_of_range_read =
-      drop_bottom ~width:Axi4.O.port_widths.araddr selected_read_ch.data.address ==:. 0
+      sel_top ~width:excess_bits_in_address selected_read_ch.data.address ==:. 0
     in
     { O.read_response =
         List.init
@@ -221,7 +238,7 @@ struct
         { wvalid = data_fifo.valid
         ; awvalid = address_fifo.valid &: no_bits_out_of_range_write
         ; awid = uextend ~width:Axi4.O.port_widths.awid address_fifo_data.id
-        ; awaddr = translate_to_axi_byte_address address_fifo_data.address
+        ; awaddr = write_address_in_bytes
         ; wdata = data_fifo_data.data
         ; wstrb = data_fifo_data.wstrb
         ; wlast = vdd
@@ -230,7 +247,7 @@ struct
         ; awsize = burst_size
         ; arvalid = selected_read_ch.valid &: no_bits_out_of_range_read
         ; arid = uextend ~width:Axi4.O.port_widths.arid which_read_ch
-        ; araddr = translate_to_axi_byte_address selected_read_ch.data.address
+        ; araddr = read_address_in_bytes
         ; rready = vdd
         ; bready = vdd
         ; arburst = fixed_burst

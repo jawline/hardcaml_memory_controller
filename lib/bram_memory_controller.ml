@@ -13,7 +13,7 @@ struct
   module Axi_config = struct
     let id_bits = 8
     let data_bits = M.data_bus_width
-    let addr_bits = address_bits_for (M.capacity_in_bytes / (data_bits / 8))
+    let addr_bits = address_bits_for M.capacity_in_bytes
     let burst_length_bits = 1
   end
 
