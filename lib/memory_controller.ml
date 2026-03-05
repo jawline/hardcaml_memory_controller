@@ -16,6 +16,7 @@ struct
       include M
     end)
 
+  module Cross_clocks = Cross_clock.Make (Memory_bus)
   open Memory_bus
 
   module Read_arbitrator =

@@ -9,8 +9,7 @@ module Make (M : sig
   end) =
 struct
   module Read = struct
-    type 'a t = { address : 'a [@bits M.address_width] }
-    [@@deriving hardcaml ~rtlmangle:"$"]
+    type 'a t = { address : 'a [@bits M.address_width] } [@@deriving hardcaml]
   end
 
   module Write = struct
@@ -19,13 +18,12 @@ struct
       ; write_data : 'a [@bits M.data_bus_width]
       ; wstrb : 'a [@bits M.data_bus_width / 8]
       }
-    [@@deriving hardcaml ~rtlmangle:"$"]
+    [@@deriving hardcaml]
   end
 
   module Read_response = struct
     module T = struct
-      type 'a t = { read_data : 'a [@bits M.data_bus_width] }
-      [@@deriving hardcaml ~rtlmangle:"$"]
+      type 'a t = { read_data : 'a [@bits M.data_bus_width] } [@@deriving hardcaml]
     end
 
     include T
@@ -34,7 +32,7 @@ struct
 
   module Write_response = struct
     module T = struct
-      type 'a t = { dummy : 'a } [@@deriving hardcaml ~rtlmangle:"$"]
+      type 'a t = { dummy : 'a } [@@deriving hardcaml]
     end
 
     include T
