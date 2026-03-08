@@ -11,8 +11,7 @@ module Make
 struct
   module I = struct
     type 'a t =
-      { clock : 'a
-      ; clear : 'a
+      { clock : 'a Clocking.t
       ; ch_to_controller : 'a S.Source.t list [@length M.num_channels]
       }
     [@@deriving hardcaml ~rtlmangle:"$"]
@@ -30,7 +29,7 @@ struct
   let rotate n xs = List.(concat [ drop xs n; take xs n ])
 
   let round_robin_priority_select ~clock ~ch_to_controller scope =
-    let reg_spec_no_clear = Reg_spec.create ~clock () in
+    let reg_spec_no_clear = Clocking.to_spec_no_clear clock in
     let%hw round_robin =
       reg_fb
         ~width:(Signal.num_bits_to_represent (M.num_channels - 1))
@@ -63,7 +62,7 @@ struct
     (priority_select channels).value
   ;;
 
-  let create ~priority_mode scope ({ clock; clear = _; ch_to_controller } : _ I.t) =
+  let create ~priority_mode scope ({ clock; ch_to_controller } : _ I.t) =
     let%hw which_ch =
       if M.num_channels = 1
       then gnd

@@ -16,8 +16,7 @@ module Make (M : sig
 
   module I : sig
     type 'a t =
-      { clock : 'a
-      ; clear : 'a
+      { clock : 'a Clocking.t
       ; write_to_controller : 'a Memory_bus.Write_bus.Source.t list
             [@length M.num_write_channels]
       ; read_to_controller : 'a Memory_bus.Read_bus.Source.t list

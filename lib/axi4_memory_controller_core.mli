@@ -17,8 +17,7 @@ module Make
     (Axi4 : Axi4.S) : sig
   module I : sig
     type 'a t =
-      { clock : 'a
-      ; clear : 'a
+      { clock : 'a Clocking.t
       ; which_read_ch : 'a
       ; selected_read_ch : 'a Memory_bus.Read_bus.Source.t
       ; which_write_ch : 'a

@@ -9,8 +9,7 @@ module Make
     (Axi : Axi4.S) : sig
   module I : sig
     type 'a t =
-      { clock : 'a
-      ; clear : 'a
+      { clock : 'a Clocking.t
       ; memory : 'a Axi.O.t
       }
     [@@deriving hardcaml]

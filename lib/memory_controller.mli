@@ -11,11 +11,11 @@ module Make
      end)
     (Axi : Axi4.S) : sig
   module Memory_bus : Memory_bus_intf.S
+  module Cross_clocks : module type of Cross_clock.Make (Memory_bus)
 
   module I : sig
     type 'a t =
-      { clock : 'a
-      ; clear : 'a
+      { clock : 'a Clocking.t
       ; write_to_controller : 'a Memory_bus.Write_bus.Source.t list
             [@length M.num_write_channels]
       ; read_to_controller : 'a Memory_bus.Read_bus.Source.t list

@@ -9,8 +9,7 @@ module Make
      end) : sig
   module I : sig
     type 'a t =
-      { clock : 'a
-      ; clear : 'a
+      { clock : 'a Clocking.t
       ; ch_to_controller : 'a S.Source.t list
       }
     [@@deriving hardcaml]

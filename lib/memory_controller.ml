@@ -37,8 +37,7 @@ struct
 
   module I = struct
     type 'a t =
-      { clock : 'a
-      ; clear : 'a
+      { clock : 'a Clocking.t
       ; write_to_controller : 'a Write_bus.Source.t list [@length M.num_write_channels]
       ; read_to_controller : 'a Read_bus.Source.t list [@length M.num_read_channels]
       ; memory : 'a Axi.I.t [@rtlprefix "memory_i$"]
@@ -61,27 +60,26 @@ struct
   let create
         ~priority_mode
         scope
-        ({ clock; clear; write_to_controller; read_to_controller; memory } : _ I.t)
+        ({ clock; write_to_controller; read_to_controller; memory } : _ I.t)
     =
     let write_arbitrator =
       Write_arbitrator.hierarchical
         ~instance:"write"
         ~priority_mode
         scope
-        { Write_arbitrator.I.clock; clear; ch_to_controller = write_to_controller }
+        { Write_arbitrator.I.clock; ch_to_controller = write_to_controller }
     in
     let read_arbitrator =
       Read_arbitrator.hierarchical
         ~instance:"read"
         ~priority_mode
         scope
-        { Read_arbitrator.I.clock; clear; ch_to_controller = read_to_controller }
+        { Read_arbitrator.I.clock; ch_to_controller = read_to_controller }
     in
     let core =
       Core.hierarchical
         scope
         { Core.I.clock
-        ; clear
         ; which_write_ch = write_arbitrator.which_ch
         ; selected_write_ch = write_arbitrator.selected_ch
         ; which_read_ch = read_arbitrator.which_ch

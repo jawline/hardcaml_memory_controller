@@ -53,8 +53,7 @@ struct
 
   module I = struct
     type 'a t =
-      { clock : 'a
-      ; clear : 'a
+      { clock : 'a Clocking.t
       ; which_read_ch : 'a [@bits address_bits_for M.num_read_channels]
       ; selected_read_ch : 'a Memory_bus.Read_bus.Source.t
       ; which_write_ch : 'a [@bits address_bits_for M.num_write_channels]
@@ -147,7 +146,6 @@ struct
   let create
         scope
         ({ clock
-         ; clear
          ; which_read_ch
          ; selected_read_ch
          ; which_write_ch
@@ -163,8 +161,8 @@ struct
     let%hw both_fifos_have_capacity = wire 1 in
     let address_fifo, address_fifo_full =
       request_fifo
-        ~clock
-        ~clear
+        ~clock:clock.clock
+        ~clear:clock.clear
         ~wr:(both_fifos_have_capacity &: selected_write_ch.valid)
         ~d:
           ({ Address_and_channel_id.address = selected_write_ch.data.address
@@ -178,8 +176,8 @@ struct
     in
     let data_fifo, data_fifo_full =
       request_fifo
-        ~clock
-        ~clear
+        ~clock:clock.clock
+        ~clear:clock.clear
         ~wr:(both_fifos_have_capacity &: selected_write_ch.valid)
         ~d:
           ({ Data_and_wstrb.data = selected_write_ch.data.write_data

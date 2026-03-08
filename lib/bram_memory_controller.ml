@@ -33,8 +33,7 @@ struct
 
   module I = struct
     type 'a t =
-      { clock : 'a
-      ; clear : 'a
+      { clock : 'a Clocking.t
       ; write_to_controller : 'a Write_bus.Source.t list [@length M.num_write_channels]
       ; read_to_controller : 'a Read_bus.Source.t list [@length M.num_read_channels]
       }
@@ -57,22 +56,17 @@ struct
         ~read_latency
         ~priority_mode
         scope
-        ({ clock; clear; write_to_controller; read_to_controller } : _ I.t)
+        ({ clock; write_to_controller; read_to_controller } : _ I.t)
     =
     let memory = Axi4.O.Of_signal.wires () in
     let mem =
-      Memory.hierarchical
-        ~build_mode
-        ~read_latency
-        scope
-        { Memory.I.clock; clear; memory }
+      Memory.hierarchical ~build_mode ~read_latency scope { Memory.I.clock; memory }
     in
     let core =
       Memory_controller.hierarchical
         ~priority_mode
         scope
         { Memory_controller.I.clock
-        ; clear
         ; write_to_controller
         ; read_to_controller
         ; memory = mem.memory

@@ -30,8 +30,7 @@ struct
 
   module I = struct
     type 'a t =
-      { clock : 'a
-      ; clear : 'a
+      { clock : 'a Clocking.t
       ; memory : 'a Axi.O.t [@rtlprefix "memory_i$"]
       }
     [@@deriving hardcaml ~rtlmangle:"$"]
@@ -42,8 +41,8 @@ struct
     [@@deriving hardcaml ~rtlmangle:"$"]
   end
 
-  let create ~build_mode ~read_latency scope ({ clock; clear; memory } : _ I.t) =
-    let reg_spec = Reg_spec.create ~clock ~clear () in
+  let create ~build_mode ~read_latency scope ({ clock; memory } : _ I.t) =
+    let reg_spec = Clocking.to_spec clock in
     (* Synthetic pushback mechanism for testing. Raises ready only once in M.synthetic_pushback cycles. *)
     let%hw should_push_back =
       if M.synthetic_pushback > 0
@@ -80,8 +79,8 @@ struct
         ~address_collision_model:Lfsr
         ~size:capacity_in_words
         ~build_mode
-        ~clock
-        ~clear
+        ~clock:clock.clock
+        ~clear:clock.clear
         ~write_enable:
           (repeat
              ~count:(width memory.wstrb)

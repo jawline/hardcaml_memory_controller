@@ -46,14 +46,14 @@ struct
     module I = Memory_controller.I
     module O = Memory_controller.O
 
-    let create scope ({ I.clock; clear; _ } as i) =
+    let create scope ({ I.clock; _ } as i) =
       let memory = Axi4.O.Of_signal.wires () in
       let ram =
         Memory.hierarchical
           ~build_mode:Simulation
           ~read_latency:C.read_latency
           scope
-          { Memory.I.clock; clear; memory }
+          { Memory.I.clock; memory }
       in
       let ctrl =
         Memory_controller.hierarchical
@@ -157,9 +157,9 @@ struct
 
   let%expect_test "read/write" =
     create_sim (fun ~inputs ~outputs:_ sim ->
-      inputs.clear := vdd;
+      inputs.clock.clear := vdd;
       Cyclesim.cycle sim;
-      inputs.clear := gnd;
+      inputs.clock.clear := gnd;
       let random = Splittable_random.of_int 1 in
       Sequence.range 0 1000
       |> Sequence.iter ~f:(fun _ ->
