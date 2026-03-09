@@ -9,16 +9,16 @@ module Make (Memory_bus : Memory_bus_intf.S) = struct
       type 'a t =
         { clocking_i : 'a Clocking.t
         ; clocking_o : 'a Clocking.t
-        ; i : 'a M.Source.t
-        ; o : 'a M.Dest.t
+        ; i : 'a M.Source.t [@rtlprefix "input$"]
+        ; o : 'a M.Dest.t [@rtlprefix "input$"]
         }
       [@@deriving hardcaml]
     end
 
     module O = struct
       type 'a t =
-        { i : 'a M.Source.t
-        ; o : 'a M.Dest.t
+        { i : 'a M.Source.t [@rtlprefix "output$"]
+        ; o : 'a M.Dest.t [@rtlprefix "output$"]
         }
       [@@deriving hardcaml]
     end
@@ -56,7 +56,7 @@ module Make (Memory_bus : Memory_bus_intf.S) = struct
 
     let hierarchical (scope : Scope.t) (input : Signal.t I.t) =
       let module H = Hierarchy.In_scope (I) (O) in
-      H.hierarchical ~scope create input
+      H.hierarchical ~scope ~name:"cross_handshake" create input
     ;;
   end
 
@@ -65,13 +65,13 @@ module Make (Memory_bus : Memory_bus_intf.S) = struct
       type 'a t =
         { clocking_i : 'a Clocking.t
         ; clocking_o : 'a Clocking.t
-        ; i : 'a W.t
+        ; i : 'a W.t [@rtlprefix "input$"]
         }
       [@@deriving hardcaml]
     end
 
     module O = struct
-      type 'a t = { i : 'a W.t } [@@deriving hardcaml]
+      type 'a t = { i : 'a W.t [@rtlprefix "output$"] } [@@deriving hardcaml]
     end
 
     module Async_fifo = Async_fifo.Make (struct
@@ -106,7 +106,7 @@ module Make (Memory_bus : Memory_bus_intf.S) = struct
 
     let hierarchical (scope : Scope.t) (input : Signal.t I.t) =
       let module H = Hierarchy.In_scope (I) (O) in
-      H.hierarchical ~scope create input
+      H.hierarchical ~scope ~name:"cross_response" create input
     ;;
   end
 
