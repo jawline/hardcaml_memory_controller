@@ -310,18 +310,22 @@ struct
                  (sel_bottom ~width:line_size_alignment_bits i.selected.address)
         }
       in
-      let read_done =
+      let%hw read_done =
         incoming
         &: incoming_is_hit
         &: ~:incoming_is_write
         |: (mem_op_done &: mem_op_was_read)
       in
-      let read_channel =
+      let%hw read_channel =
         mux2 (incoming &: incoming_is_hit) i.selected.id i.request_response.id
       in
-      let write_channel = i.selected.id in
+      let%hw write_channel = i.selected.id in
       (* We can pre ack the write even if it's a cache miss as the controller will lock while it flushes the line. *)
-      let write_done = incoming &: incoming_is_write in
+      let%hw write_done = incoming &: incoming_is_write in
+      let%hw which_read_data_cell =
+        byte_to_cell_addr i.request_response.address
+        |> sel_bottom ~width:(address_bits_for line_width)
+      in
       { O.locked =
           (* We lock for this cycle if it's a write so we can write back to the
              cache (otherwise Read_before_write might lead to incoherent data).
@@ -337,7 +341,12 @@ struct
               List.init
                 ~f:(fun ch ->
                   { With_valid.valid = read_done &: (read_channel ==:. ch)
-                  ; value = { Read_response.read_data = assert false }
+                  ; value =
+                      { Read_response.read_data =
+                          mux
+                            which_read_data_cell
+                            (split_lsb ~part_width:cell_width i.request_response.data)
+                      }
                   })
                 num_read_channels
           ; write_response =
