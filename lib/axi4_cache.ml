@@ -163,7 +163,6 @@ struct
 
     let create scope (i : _ I.t) =
       let%hw locked = wire 1 in
-      let%hw address_transferred = assert false in
       let%hw.Request.Of_signal request_reg =
         Request.Of_signal.reg (Clocking.to_spec_no_clear i.clock) i.request
       in
@@ -181,6 +180,16 @@ struct
             ~f:(fun t -> i.request.valid |: t &: ~:finishing_this_cycle)
             i.clock;
       let o_req = Request.Of_signal.mux2 locked request_reg i.request in
+      let%hw address_transferred =
+        Clocking.reg_fb
+          ~width:1
+          ~f:(fun t ->
+            mux2
+              finishing_this_cycle
+              gnd
+              (t |: (o_req.write &: i.axi.awready |: (~:(o_req.write) &: i.axi.arready))))
+          i.clock
+      in
       { O.finished = finishing_this_cycle
       ; address = o_req.address
       ; id = o_req.id
