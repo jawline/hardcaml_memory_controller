@@ -63,7 +63,7 @@ struct
     Memory_requester.Make
       (struct
         let data_bits = cell_width * line_width
-        let id_bits = id_width
+        let id_bits = id_bits
       end)
       (Axi4_out)
 
@@ -91,7 +91,7 @@ struct
       ; is_write : 'a
       ; address : 'a [@bits cell_address_width]
       ; write_data : 'a [@bits Write.port_widths.write_data]
-      ; id : 'a [@bits address_bits_for id_width]
+      ; id : 'a [@bits id_bits]
       }
     [@@deriving hardcaml]
   end
@@ -133,8 +133,8 @@ struct
           ; write_data = i.requests.selected_write_ch.data.write_data
           ; id =
               sel
-                (uextend ~width:id_width i.requests.which_write_ch)
-                (uextend ~width:id_width i.requests.which_read_ch)
+                (uextend ~width:id_bits i.requests.which_write_ch)
+                (uextend ~width:id_bits i.requests.which_read_ch)
           }
       }
     ;;

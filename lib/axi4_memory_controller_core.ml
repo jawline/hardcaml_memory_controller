@@ -28,22 +28,6 @@ struct
           "BUG: cannot request a capacity that is not a multiple of data_bus_width"]
   ;;
 
-  let () =
-    if Axi4.id_width < M.num_read_channels
-    then
-      raise_s
-        [%message
-          "BUG: The AXI4 MIG config should have an ID width large enough to address each \
-           read channel"];
-    if Axi4.id_width < M.num_write_channels
-    then
-      raise_s
-        [%message
-          "BUG: The AXI4 MIG config should have an ID with large enough to address each \
-           write channel"];
-    ()
-  ;;
-
   module I = struct
     type 'a t =
       { clock : 'a Clocking.t
