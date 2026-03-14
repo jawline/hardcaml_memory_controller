@@ -51,8 +51,15 @@ struct
 
   let () =
     if data_bits <> Axi.I.port_widths.rdata
-    then raise_s [%message "TODO: For now we only support single AXI beat bursts."]
+    then
+      raise_s
+        [%message
+          "TODO: For now we only support single AXI beat bursts."
+            (data_bits : int)
+            (Axi.I.port_widths.rdata : int)]
   ;;
+
+  (* TODO: This module needs tidying up, particularly the address transferred logic. *)
 
   let create scope (i : _ I.t) =
     let%hw locked = wire 1 in
@@ -77,10 +84,22 @@ struct
       Clocking.reg_fb
         ~width:1
         ~f:(fun t ->
+          let%hw write_request_start =
+            i.request.valid &: i.request.write &: i.axi.awready
+          in
+          let%hw read_request_start =
+            i.request.valid &: ~:(i.request.write) &: i.axi.awready
+          in
+          let%hw write_req_in_process = locked &: o_req.write &: i.axi.awready in
+          let%hw read_req_in_process = locked &: ~:(o_req.write) &: i.axi.arready in
           mux2
             finishing_this_cycle
             gnd
-            (t |: (o_req.write &: i.axi.awready |: (~:(o_req.write) &: i.axi.arready))))
+            (t
+             |: write_request_start
+             |: read_request_start
+             |: write_req_in_process
+             |: read_req_in_process))
         i.clock
     in
     { O.finished = finishing_this_cycle

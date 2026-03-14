@@ -20,7 +20,7 @@ struct
   module Read = struct
     type 'a t =
       { valid : 'a
-      ; address : 'a [@bits cache_address_width]
+      ; cell_address : 'a [@bits cache_address_width]
       }
     [@@deriving hardcaml]
   end
@@ -28,9 +28,9 @@ struct
   module Write = struct
     type 'a t =
       { valid : 'a
-      ; address : 'a [@bits cache_address_width]
+      ; cache_address : 'a [@bits cache_address_width]
       ; datas : 'a list [@bits cell_width] [@length line_size]
-      ; cell_address : 'a [@bits memory_address_width]
+      ; address : 'a [@bits memory_address_width]
       ; wstrb : 'a [@bits line_size]
       }
     [@@deriving hardcaml]
@@ -78,35 +78,40 @@ struct
 
   let create ~build_mode _scope (i : _ I.t) =
     let reg_spec = Clocking.to_spec i.clock in
+    let wstrb_per_cell = bits_lsb i.write.wstrb in
     let line_read_datas =
       List.map
-        ~f:(fun write_data ->
+        ~f:(fun (write_data, wstrb) ->
           mkram
             ~build_mode
             ~clock:i.clock
-            ~write_enable:
-              (repeat ~count:(width i.write.wstrb) i.write.valid &: i.write.wstrb)
-            ~write_address:i.write.address
+            ~write_enable:(repeat ~count:(cell_width / 8) (i.write.valid &: wstrb))
+            ~write_address:i.write.cache_address
             ~data:write_data
             ~read_enable:i.read.valid
-            ~read_address:i.read.address
+            ~read_address:i.read.cell_address
             ~read_latency
             ())
-        i.write.datas
+        (List.zip_exn i.write.datas wstrb_per_cell)
     in
     let line_metadata =
+      let min_metadata_size =
+        Line_metadata.sum_of_port_widths |> Int.round_up ~to_multiple_of:8
+      in
       mkram
         ~build_mode
         ~clock:i.clock
-        ~write_enable:i.write.valid
-        ~write_address:i.write.address
+        ~write_enable:(repeat ~count:(min_metadata_size / 8) i.write.valid)
+        ~write_address:i.write.cache_address
         ~data:
           (Line_metadata.Of_signal.pack
-             { valid = vdd; address = i.write.address; strb = i.write.wstrb })
+             { valid = vdd; address = i.write.address; strb = i.write.wstrb }
+           |> uextend ~width:min_metadata_size)
         ~read_enable:i.read.valid
-        ~read_address:i.read.address
+        ~read_address:i.read.cell_address
         ~read_latency
         ()
+      |> sel_bottom ~width:Line_metadata.sum_of_port_widths
       |> Line_metadata.Of_signal.unpack
     in
     { O.meta =

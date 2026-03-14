@@ -20,12 +20,22 @@ struct
   let line_size_alignment_bits = address_bits_for (cell_bytes * line_width)
   let cell_to_bytes_bits = address_bits_for cell_bytes
   let byte_address_width = Memory_bus.Read.port_widths.address + cell_to_bytes_bits
+  let byte_to_cell_addr = drop_bottom ~width:cell_to_bytes_bits
 
   let line_address_width =
     Memory_bus.Read.port_widths.address + cell_to_bytes_bits - line_size_alignment_bits
   ;;
 
+  let to_line_address t =
+    if width t < line_address_width
+    then uextend ~width:line_address_width t
+    else sel_top ~width:line_address_width t
+  ;;
+
+  let cell_address_to_bytes t = concat_msb [ t; zero cell_to_bytes_bits ]
   let id_width = Int.max num_read_channels num_write_channels
+  let id_bits = address_bits_for id_width
+  let () = print_s [%message "Line address width:" (line_address_width : int)]
 
   module Ram = Cache_ram.Make (struct
       let cell_width = cell_width
@@ -42,15 +52,10 @@ struct
       end)
       (Axi4_out)
 
-  let address_to_bytes t = concat_msb [ t; zero cell_to_bytes_bits ]
-
-  let address_to_cacheline_address t =
-    address_to_bytes t |> drop_bottom ~width:line_size_alignment_bits
-  ;;
-
   let hash_cell_address address =
     print_s [%message "TODO: Use a real hash function"];
-    sel_bottom ~width:(address_bits_for num_cache_lines) address
+    let w = address_bits_for num_cache_lines in
+    if width address > w then sel_bottom ~width:w address else uextend ~width:w address
   ;;
 
   module Memory_requests = struct
@@ -116,7 +121,10 @@ struct
                 i.requests.selected_write_ch.data.address
                 i.requests.selected_read_ch.data.address
           ; write_data = i.requests.selected_write_ch.data.write_data
-          ; id = sel i.requests.which_write_ch i.requests.which_read_ch
+          ; id =
+              sel
+                (uextend ~width:id_width i.requests.which_write_ch)
+                (uextend ~width:id_width i.requests.which_read_ch)
           }
       }
     ;;
@@ -153,7 +161,8 @@ struct
       let%hw incoming = i.selected.valid in
       let%hw incoming_is_write = i.selected.is_write in
       let%hw incoming_is_hit =
-        i.ram_read.meta.valid &: (i.ram_read.meta.address ==: i.selected.address)
+        i.ram_read.meta.valid
+        &: (i.ram_read.meta.address ==: to_line_address i.selected.address)
       in
       let%hw no_write_flush_needed = incoming_is_hit |: ~:(i.ram_read.meta.valid) in
       let%hw mem_op_done = i.request_response.finished in
@@ -167,20 +176,19 @@ struct
                   &: mux2 incoming_is_write ~:no_write_flush_needed ~:incoming_is_hit)
               &: ~:mem_op_done)
             i.clock;
-      let byte_to_cell_addr = drop_bottom ~width:cell_to_bytes_bits in
       let byte_to_hashed t = hash_cell_address (byte_to_cell_addr t) in
       let mem_op_write_back =
         { Ram.Write.valid = mem_op_done
-        ; cell_address = byte_to_hashed i.request_response.address
-        ; address = byte_to_cell_addr i.request_response.address
+        ; cache_address = byte_to_hashed i.request_response.address
+        ; address = to_line_address i.request_response.address
         ; datas = split_lsb ~part_width:cell_width i.request_response.data
         ; wstrb = ones (width i.ram_read.meta.strb) (* We read the entire line *)
         }
       in
       let incoming_write_back =
         { Ram.Write.valid = incoming &: incoming_is_write
-        ; cell_address = byte_to_hashed i.selected.address
-        ; address = byte_to_cell_addr i.selected.address
+        ; cache_address = byte_to_hashed i.selected.address
+        ; address = to_line_address i.selected.address (* Already in cell space *)
         ; datas =
             List.init ~f:(fun _ -> i.selected.write_data) line_width
             (* We repeat the same data as the wstrb guards against writes to the other cells. *)
@@ -188,12 +196,23 @@ struct
             (* On a hit we just rewrite a DW, on a miss we zero the rest of
                the cell. This happens asynchronously with a transmission of
                the cell to memory in which time the cell remains locked. *)
-            repeat ~count:(width i.ram_read.meta.strb) incoming_is_hit
-            &: i.ram_read.meta.strb
-            |: binary_to_onehot
-                 (sel_bottom ~width:line_size_alignment_bits i.selected.address)
+            (let onehot =
+               binary_to_onehot
+                 (drop_bottom ~width:cell_to_bytes_bits i.selected.address
+                  |> sel_bottom ~width:(address_bits_for line_width))
+             in
+             let existing_strb =
+               repeat ~count:(width i.ram_read.meta.strb) incoming_is_hit
+               &: i.ram_read.meta.strb
+             in
+             print_s [%message (width onehot : int) (width existing_strb : int)];
+             onehot |: existing_strb)
         }
       in
+      print_s
+        [%message
+          (width mem_op_write_back.address : int)
+            (width incoming_write_back.address : int)];
       let%hw read_done =
         incoming
         &: incoming_is_hit
@@ -247,9 +266,9 @@ struct
           ; write = incoming_is_write
           ; wstrb =
               bits_lsb i.ram_read.meta.strb
-              |> List.map ~f:(repeat ~count:cell_width)
+              |> List.map ~f:(repeat ~count:(cell_width / 8))
               |> concat_lsb
-          ; address = i.selected.address
+          ; address = cell_address_to_bytes i.selected.address
           ; write_data = concat_lsb i.ram_read.read_data
           ; id = i.selected.id
           }
@@ -275,6 +294,8 @@ struct
     type 'a t =
       { response : 'a Memory_responses.t
       ; dn : 'a Axi4_out.O.t
+      ; read_ready : 'a
+      ; write_ready : 'a
       }
     [@@deriving hardcaml]
   end
@@ -290,7 +311,7 @@ struct
         { Ram.I.clock
         ; read =
             { valid = arb.selected.valid
-            ; address = hash_cell_address arb.selected.address
+            ; cell_address = hash_cell_address arb.selected.address
             }
         ; write
         }
@@ -314,8 +335,18 @@ struct
         scope
         { Memory_requester.I.clock; request = request_stage.memory_request; axi = dn }
     in
+    downstream_locked <-- request_stage.locked;
     Memory_requester.O.Of_signal.(request_response <-- memory_stage);
     Ram.Write.Of_signal.(write <-- request_stage.ram_write);
-    { O.response = request_stage.memory_responses; dn = memory_stage.axi }
+    { O.response = request_stage.memory_responses
+    ; dn = memory_stage.axi
+    ; read_ready = arb.read_ready
+    ; write_ready = arb.write_ready
+    }
+  ;;
+
+  let hierarchical ~build_mode (scope : Scope.t) (input : Signal.t I.t) =
+    let module H = Hierarchy.In_scope (I) (O) in
+    H.hierarchical ~scope ~name:"axi4_cache" (create ~build_mode) input
   ;;
 end
