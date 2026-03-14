@@ -25,12 +25,22 @@ struct
     Memory_bus.Read.port_widths.address + cell_to_bytes_bits - line_size_alignment_bits
   ;;
 
+  let id_width = Int.max num_read_channels num_write_channels
+
   module Ram = Cache_ram.Make (struct
       let cell_width = cell_width
       let line_size = line_width
       let num_cache_lines = num_cache_lines
       let memory_address_width = line_address_width
     end)
+
+  module Memory_requester =
+    Memory_requester.Make
+      (struct
+        let data_bits = cell_width * line_width
+        let id_bits = id_width
+      end)
+      (Axi4_out)
 
   let address_to_bytes t = concat_msb [ t; zero cell_to_bytes_bits ]
 
@@ -42,8 +52,6 @@ struct
     print_s [%message "TODO: Use a real hash function"];
     sel_bottom ~width:(address_bits_for num_cache_lines) address
   ;;
-
-  let id_width = Int.max num_read_channels num_write_channels
 
   module Memory_requests = struct
     type 'a t =
@@ -116,130 +124,6 @@ struct
     let hierarchical (scope : Scope.t) (input : Signal.t I.t) =
       let module H = Hierarchy.In_scope (I) (O) in
       H.hierarchical ~scope ~name:"axi4_cache_arb" create input
-    ;;
-  end
-
-  (** A module that requests fixed size blocks of data from an AXI bus. *)
-  module Memory_requester = struct
-    let line_bits = cell_width * line_width
-
-    module Request = struct
-      type 'a t =
-        { valid : 'a
-        ; address : 'a [@bits byte_address_width]
-        ; id : 'a [@bits id_width]
-        ; write : 'a
-        ; wstrb : 'a [@bits line_width]
-        ; write_data : 'a [@bits line_bits]
-        }
-      [@@deriving hardcaml]
-    end
-
-    module I = struct
-      type 'a t =
-        { clock : 'a Clocking.t
-        ; request : 'a Request.t
-        ; axi : 'a Axi4_out.I.t
-        }
-      [@@deriving hardcaml]
-    end
-
-    module O = struct
-      type 'a t =
-        { finished : 'a
-        ; address : 'a [@bits byte_address_width]
-        ; id : 'a [@bits id_width]
-        ; was_write : 'a
-        ; data : 'a [@bits line_bits]
-        ; axi : 'a Axi4_out.O.t
-        }
-      [@@deriving hardcaml]
-    end
-
-    let () =
-      if line_bits <> Axi4_out.I.port_widths.rdata
-      then raise_s [%message "TODO: For now we only support single AXI beat bursts."]
-    ;;
-
-    let create scope (i : _ I.t) =
-      let%hw locked = wire 1 in
-      let%hw.Request.Of_signal request_reg =
-        Request.Of_signal.reg (Clocking.to_spec_no_clear i.clock) i.request
-      in
-      let%hw finishing_this_cycle =
-        locked
-        &: request_reg.write
-        &: i.axi.wready
-        |: (i.request.valid &: i.request.write &: i.axi.wready)
-        |: (locked &: ~:(request_reg.write) &: i.axi.rvalid)
-        |: (i.request.valid &: ~:(i.request.write) &: i.axi.rvalid)
-      in
-      locked
-      <-- Clocking.reg_fb
-            ~width:1
-            ~f:(fun t -> i.request.valid |: t &: ~:finishing_this_cycle)
-            i.clock;
-      let o_req = Request.Of_signal.mux2 locked request_reg i.request in
-      let%hw address_transferred =
-        Clocking.reg_fb
-          ~width:1
-          ~f:(fun t ->
-            mux2
-              finishing_this_cycle
-              gnd
-              (t |: (o_req.write &: i.axi.awready |: (~:(o_req.write) &: i.axi.arready))))
-          i.clock
-      in
-      { O.finished = finishing_this_cycle
-      ; address = o_req.address
-      ; id = o_req.id
-      ; was_write = o_req.write
-      ; data = i.axi.rdata
-      ; axi =
-          { Axi4_out.O.awvalid =
-              locked
-              &: ~:address_transferred
-              &: request_reg.write
-              |: (i.request.valid &: i.request.write)
-          ; wvalid = locked &: request_reg.write |: (i.request.valid &: i.request.write)
-          ; awaddr = o_req.address
-          ; awburst = of_unsigned_int ~width:2 0b01 (* INCR *)
-          ; awid =
-              zero Axi4_out.O.port_widths.arid
-              (* TODO: Maybe we should give the cache an ID in case it is on an interconnect? *)
-          ; awlen = of_unsigned_int ~width:Axi4_out.O.port_widths.awlen 1
-          ; awsize =
-              of_unsigned_int
-                ~width:Axi4_out.O.port_widths.awsize
-                (num_bits_to_represent (line_width / 8))
-          ; wlast = vdd
-          ; wdata = o_req.write_data
-          ; wstrb =
-              bits_lsb o_req.wstrb |> List.map ~f:(repeat ~count:cell_width) |> concat_lsb
-          ; bready = vdd (* Unconditionally ack writes *)
-          ; arvalid =
-              locked
-              &: ~:address_transferred
-              &: ~:(request_reg.write)
-              |: (i.request.valid &: ~:(i.request.write))
-          ; araddr = o_req.address
-          ; arburst = of_unsigned_int ~width:2 0b01 (* INCR *)
-          ; arid =
-              zero Axi4_out.O.port_widths.arid
-              (* TODO: Maybe we should give the cache an ID in case it is on an interconnect? *)
-          ; arlen = of_unsigned_int ~width:Axi4_out.O.port_widths.awlen 1
-          ; arsize =
-              of_unsigned_int
-                ~width:Axi4_out.O.port_widths.awsize
-                (num_bits_to_represent (line_width / 8))
-          ; rready = vdd (* We can always receive a read response *)
-          }
-      }
-    ;;
-
-    let hierarchical (scope : Scope.t) (input : Signal.t I.t) =
-      let module H = Hierarchy.In_scope (I) (O) in
-      H.hierarchical ~scope ~name:"memory_requester" create input
     ;;
   end
 
@@ -361,7 +245,10 @@ struct
           { Memory_requester.Request.valid =
               incoming &: mux2 incoming_is_write ~:no_write_flush_needed ~:incoming_is_hit
           ; write = incoming_is_write
-          ; wstrb = i.ram_read.meta.strb
+          ; wstrb =
+              bits_lsb i.ram_read.meta.strb
+              |> List.map ~f:(repeat ~count:cell_width)
+              |> concat_lsb
           ; address = i.selected.address
           ; write_data = concat_lsb i.ram_read.read_data
           ; id = i.selected.id
