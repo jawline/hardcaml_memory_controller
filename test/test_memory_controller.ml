@@ -221,7 +221,6 @@ struct
       "TODO: Warning, the hash function for the AXI4 cache is pretty bad (Fn.id)"
       Saved waves to /var/home/blake/waves//_read_write_7.hardcamlwaveform
       |}]
-  
   ;;
 end
 

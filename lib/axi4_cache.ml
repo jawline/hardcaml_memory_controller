@@ -115,7 +115,9 @@ struct
     end
 
     let create _scope (i : _ I.t) =
-    print_s [%message "TODO: Warning, the hash function for the AXI4 cache is pretty bad (Fn.id)"];
+      print_s
+        [%message
+          "TODO: Warning, the hash function for the AXI4 cache is pretty bad (Fn.id)"];
       let sel = mux2 i.requests.selected_write_ch.valid in
       (* For now, lets just do write priority since our only writers are DMA and the core which needs to read in between. *)
       { O.read_ready = ~:(i.downstream_locked) &: ~:(i.requests.selected_write_ch.valid)
@@ -218,7 +220,7 @@ struct
         incoming &: ~:incoming_is_write &: ~:incoming_read_is_hit
       in
       let%hw issuing_write_request = incoming &: need_to_flush_line in
-      let%hw acked_write_request = issuing_write_request &: i.write_response.finished in 
+      let%hw acked_write_request = issuing_write_request &: i.write_response.finished in
       (* We issue the cache line eviction write and read concurrently. In the case that we are flushing the same cell
          (e.g., we have dws 1 and 2 and we need dw 3), we need to strobe the ram write back to make sure we don't
          read the stale data we just wrote. *)
@@ -240,7 +242,11 @@ struct
       let%hw awaiting_write =
         Clocking.reg_fb
           ~width:1
-          ~f:(fun t -> mux2 i.write_response.finished gnd (t |: (issuing_write_request &: ~:(acked_write_request))))
+          ~f:(fun t ->
+            mux2
+              i.write_response.finished
+              gnd
+              (t |: (issuing_write_request &: ~:acked_write_request)))
           i.clock
       in
       let%hw all_memory_operations_done =
@@ -258,7 +264,7 @@ struct
             ~width:1
             ~f:(fun t ->
               t
-              |: ((issuing_write_request &: ~:(acked_write_request)) |: issuing_read_request)
+              |: (issuing_write_request &: ~:acked_write_request |: issuing_read_request)
               &: ~:all_memory_operations_done)
             i.clock;
       let%hw.Ram.Write.Of_signal mem_op_write_back =
