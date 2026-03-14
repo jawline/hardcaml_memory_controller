@@ -32,6 +32,7 @@ struct
       ; datas : 'a list [@bits cell_width] [@length line_size]
       ; address : 'a [@bits memory_address_width]
       ; wstrb : 'a [@bits line_size]
+      ; dirty : 'a
       }
     [@@deriving hardcaml]
   end
@@ -41,6 +42,7 @@ struct
       { valid : 'a
       ; address : 'a [@bits memory_address_width]
       ; strb : 'a [@bits line_size]
+      ; dirty : 'a
       }
     [@@deriving hardcaml]
   end
@@ -105,7 +107,11 @@ struct
         ~write_address:i.write.cache_address
         ~data:
           (Line_metadata.Of_signal.pack
-             { valid = vdd; address = i.write.address; strb = i.write.wstrb }
+             { valid = vdd
+             ; address = i.write.address
+             ; strb = i.write.wstrb
+             ; dirty = i.write.dirty
+             }
            |> uextend ~width:min_metadata_size)
         ~read_enable:i.read.valid
         ~read_address:i.read.cache_address
@@ -119,6 +125,7 @@ struct
             pipeline ~n:read_latency reg_spec i.read.valid &: line_metadata.valid
         ; address = line_metadata.address
         ; strb = line_metadata.strb
+        ; dirty = line_metadata.dirty
         }
     ; read_data = line_read_datas
     }

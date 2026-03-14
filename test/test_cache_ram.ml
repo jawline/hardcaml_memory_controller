@@ -77,13 +77,13 @@ let%expect_test "basic read/write" =
   [%expect
     {|
     ("read ~cache_line:1 sim"
-     ((meta ((valid 1) (address 3735928559) (strb 255)))
+     ((meta ((valid 1) (address 3735928559) (strb 255) (dirty 0)))
       (read_data (255 255 255 255 255 255 255 255))))
     ("read ~cache_line:1 sim"
-     ((meta ((valid 1) (address 3735928559) (strb 255)))
+     ((meta ((valid 1) (address 3735928559) (strb 255) (dirty 0)))
       (read_data (1 0 255 3 6 4 9 3))))
     ("read ~cache_line:1 sim"
-     ((meta ((valid 1) (address 11513775) (strb 60)))
+     ((meta ((valid 1) (address 11513775) (strb 60) (dirty 0)))
       (read_data (1 0 255 255 255 255 9 3))))
     |}]
 ;;
