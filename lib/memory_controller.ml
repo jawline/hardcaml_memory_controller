@@ -80,12 +80,11 @@ struct
     in
     (* TODO: We stall on a bad read request rather than trap. We rely on the CPU stalling in tests so we stop on a known PC. It would be better to use a breakpoint as test completion. *)
     let cap_check t =
-      if Int.pow 2 (width t) >= M.capacity_in_bytes
-      then t <:. M.capacity_in_bytes
-      else vdd
+      let capacity_in_words = M.capacity_in_bytes / (M.data_bus_width / 8) in
+      if Int.pow 2 (width t) > capacity_in_words then t <:. capacity_in_words else vdd
     in
-    let can_ack_read = cap_check read_arbitrator.selected_ch.data.address in
-    let can_ack_write = cap_check write_arbitrator.selected_ch.data.address in
+    let%hw can_ack_read = cap_check read_arbitrator.selected_ch.data.address in
+    let%hw can_ack_write = cap_check write_arbitrator.selected_ch.data.address in
     let selected_read =
       { read_arbitrator.selected_ch with
         valid = read_arbitrator.selected_ch.valid &: can_ack_read
