@@ -47,7 +47,7 @@ struct
     let aligned_top = drop_bottom ~width:(address_bits_for data_bus_bytes) address in
     let misaligned_bottom = sel_bottom ~width:(address_bits_for data_bus_bytes) address in
     { With_valid.valid = misaligned_bottom ==:. 0
-    ; value = uextend ~width:address_width aligned_top
+    ; value = uresize ~width:address_width aligned_top
     }
   ;;
 
