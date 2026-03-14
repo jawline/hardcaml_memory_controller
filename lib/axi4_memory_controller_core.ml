@@ -121,6 +121,7 @@ struct
     let data_width = Axi4.data_width / 8 in
     let addr_translation_bits = address_bits_for data_width in
     concat_msb [ t; zero addr_translation_bits ]
+    |> sel_bottom ~width:Axi4.O.port_widths.awaddr
   ;;
 
   let create

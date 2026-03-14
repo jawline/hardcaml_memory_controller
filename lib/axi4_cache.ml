@@ -14,6 +14,7 @@ struct
   open Config
   open Memory_bus
 
+  let axi_address_width = Axi4_out.O.port_widths.awaddr
   let cell_width = Memory_bus.Write.port_widths.write_data
   let cell_bytes = cell_width / 8
   let line_size_alignment_bits = address_bits_for (cell_bytes * line_width)
@@ -353,7 +354,10 @@ struct
           }
       ; read_request =
           { Memory_requester.Read.Request.valid = issuing_read_request
-          ; address = cell_address_to_bytes i.selected.address
+          ; address =
+              sel_bottom
+                ~width:axi_address_width
+                (cell_address_to_bytes i.selected.address)
           ; id = i.selected.id
           }
       ; write_request =
@@ -362,7 +366,10 @@ struct
               bits_lsb i.ram_read.meta.strb
               |> List.map ~f:(repeat ~count:(cell_width / 8))
               |> concat_lsb
-          ; address = cache_address_to_byte_address i.ram_read.meta.address
+          ; address =
+              sel_bottom
+                ~width:axi_address_width
+                (cache_address_to_byte_address i.ram_read.meta.address)
           ; write_data = concat_lsb i.ram_read.read_data
           ; id = i.selected.id
           }

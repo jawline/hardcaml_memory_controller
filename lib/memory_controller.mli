@@ -3,6 +3,7 @@ open Hardcaml
 
 module Make
     (M : sig
+       val address_width : int
        val capacity_in_bytes : int
        val num_read_channels : int
        val num_write_channels : int

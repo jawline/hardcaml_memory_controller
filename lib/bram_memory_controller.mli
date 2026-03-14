@@ -6,10 +6,10 @@ open! Core
 open Hardcaml
 
 module Make (M : sig
+    val address_width : int
     val capacity_in_bytes : int
     val num_read_channels : int
     val num_write_channels : int
-    val address_width : int
     val data_bus_width : int
     val cache_memory : (module Axi4_cache.Config) option
   end) : sig

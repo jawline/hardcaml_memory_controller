@@ -4,6 +4,7 @@ open Signal
 
 module Make
     (M : sig
+       val address_width : int
        val data_bus_width : int
        val capacity_in_bytes : int
        val num_read_channels : int
@@ -13,10 +14,6 @@ module Make
     (Axi : Axi4.S) =
 struct
   module Memory_bus = Memory_bus.Make (struct
-      let address_width =
-        Axi.O.port_widths.awaddr - address_bits_for (M.data_bus_width / 8)
-      ;;
-
       include M
     end)
 

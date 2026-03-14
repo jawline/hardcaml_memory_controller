@@ -37,6 +37,7 @@ struct
   module Memory_controller =
     Memory_controller.Make
       (struct
+        let address_width = 32
         let capacity_in_bytes = capacity_in_bytes
         let num_read_channels = C.num_channels
         let num_write_channels = C.num_channels
