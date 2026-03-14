@@ -78,6 +78,12 @@ struct
         scope
         { Read_arbitrator.I.clock; ch_to_controller = read_to_controller }
     in
+    (* TODO: We stall on a bad read request rather than trap. We rely on the CPU stalling in tests so we stop on a known PC. It would be better to use a breakpoint as test completion. *)
+    let can_ack_read = (read_arbitrator.selected_ch.data.address <:. M.capacity_in_bytes) in
+    let can_ack_write = (write_arbitrator.selected_ch.data.address <:. M.capacity_in_bytes) in
+    let selected_read = { read_arbitrator.selected_ch with valid = read_arbitrator.selected_ch.valid &: can_ack_read } in
+    let selected_write = { write_arbitrator.selected_ch with valid = write_arbitrator.selected_ch.valid &: can_ack_write } in
+
     let core =
       match M.cache_memory with
       | Some (module C : Axi4_cache.Config) ->
@@ -89,10 +95,9 @@ struct
             { Axi4_cache.I.clock
             ; requests =
                 { which_write_ch = write_arbitrator.which_ch
-                ; selected_write_ch = write_arbitrator.selected_ch
+                ; selected_write_ch = selected_write
                 ; which_read_ch = read_arbitrator.which_ch
-                ; selected_read_ch = read_arbitrator.selected_ch
-                }
+                ; selected_read_ch = selected_read                }
             ; dn = memory
             }
         in
@@ -109,20 +114,20 @@ struct
           scope
           { Core.I.clock
           ; which_write_ch = write_arbitrator.which_ch
-          ; selected_write_ch = write_arbitrator.selected_ch
+          ; selected_write_ch = selected_write
           ; which_read_ch = read_arbitrator.which_ch
-          ; selected_read_ch = read_arbitrator.selected_ch
+          ; selected_read_ch = selected_read
           ; memory
           }
     in
     (* TODO: Propagate errors *)
     { O.write_to_controller =
         List.map
-          ~f:(fun t -> { Write_bus.Dest.ready = t.ready &: core.write_ready })
+          ~f:(fun t -> { Write_bus.Dest.ready = t.ready &: core.write_ready &: can_ack_write })
           write_arbitrator.acks
     ; read_to_controller =
         List.map
-          ~f:(fun t -> { Read_bus.Dest.ready = t.ready &: core.read_ready })
+          ~f:(fun t -> { Read_bus.Dest.ready = t.ready &: core.read_ready &: can_ack_read })
           read_arbitrator.acks
     ; write_response = core.write_response
     ; read_response = core.read_response
