@@ -4,20 +4,23 @@ open Hardcaml_test_harness
 open Hardcaml_memory_controller
 open! Bits
 
-let debug = false
+let debug = true
+let capacity_in_bytes = 1024
 
 module Make_tests (C : sig
     val num_channels : int
     val read_latency : int
     val synthetic_pushback : int
+    val cache : bool
   end) =
 struct
   let data_width = 32
+  let data_bytes = data_width / 8
 
   module Axi_config = struct
     let id_bits = 8
-    let data_bits = data_width
-    let addr_bits = address_bits_for 128
+    let data_bits = if C.cache then data_width * 8 else data_width
+    let addr_bits = address_bits_for capacity_in_bytes
     let burst_length_bits = 1
   end
 
@@ -26,7 +29,7 @@ struct
   module Memory =
     Axi4_bram.Make
       (struct
-        let capacity_in_bytes = 128
+        let capacity_in_bytes = capacity_in_bytes
         let synthetic_pushback = C.synthetic_pushback
       end)
       (Axi4)
@@ -34,13 +37,27 @@ struct
   module Memory_controller =
     Memory_controller.Make
       (struct
-        let capacity_in_bytes = 128
+        let capacity_in_bytes = capacity_in_bytes
         let num_read_channels = C.num_channels
         let num_write_channels = C.num_channels
-        let address_width = 32
         let data_bus_width = data_width
+
+        let cache_memory =
+          if C.cache
+          then
+            Some
+              (module struct
+                let line_width = 8
+                let num_cache_lines = 4
+                let num_read_channels = C.num_channels
+                let num_write_channels = C.num_channels
+              end : Axi4_cache.Config)
+          else None
+        ;;
       end)
       (Axi4)
+
+  let addr_bits = Memory_controller.Memory_bus.address_width
 
   module Machine = struct
     module I = Memory_controller.I
@@ -57,6 +74,7 @@ struct
       in
       let ctrl =
         Memory_controller.hierarchical
+          ~build_mode:Simulation
           ~priority_mode:Priority_order
           scope
           { i with memory = ram.memory }
@@ -97,7 +115,7 @@ struct
     let inputs : _ Memory_controller.I.t = Cyclesim.inputs sim in
     let ch_tx = List.nth_exn inputs.write_to_controller ch in
     ch_tx.valid := vdd;
-    ch_tx.data.address := of_unsigned_int ~width:32 address;
+    ch_tx.data.address := of_unsigned_int ~width:addr_bits address;
     ch_tx.data.write_data := of_unsigned_int ~width:32 value;
     ch_tx.data.wstrb := ones 4;
     let outputs : _ Memory_controller.O.t = Cyclesim.outputs ~clock_edge:Before sim in
@@ -116,7 +134,7 @@ struct
           else ())
         outputs.write_to_controller;
       ch_tx.valid := gnd;
-      wait_for_write_ack ~timeout:1000 ~ch sim)
+      wait_for_write_ack ~timeout:10000 ~ch sim)
     else write ~timeout:(timeout - 1) ~address ~value ~ch sim
   ;;
 
@@ -129,7 +147,7 @@ struct
     let ch_tx = List.nth_exn inputs.read_to_controller ch in
     let rec wait_for_ready timeout =
       ch_tx.valid := vdd;
-      ch_tx.data.address := of_unsigned_int ~width:32 address;
+      ch_tx.data.address := of_unsigned_int ~width:addr_bits address;
       Cyclesim.cycle sim;
       if timeout = 0 then raise_s [%message "BUG: Timeout"];
       if to_bool !(ch_rx_ack.ready)
@@ -145,8 +163,8 @@ struct
       then to_int_trunc !(ch_rx.value.read_data)
       else wait_for_data (timeout - 1)
     in
-    wait_for_ready 1000;
-    wait_for_data 1000
+    wait_for_ready 100;
+    wait_for_data 100
   ;;
 
   let read_and_assert ~address ~value ~ch sim =
@@ -167,60 +185,98 @@ struct
           Splittable_random.int ~lo:Int.min_value ~hi:Int.max_value random land 0xFFFFFFFF
         in
         let ch = Splittable_random.int ~lo:0 ~hi:(C.num_channels - 1) random in
-        let address = Splittable_random.int ~lo:0 ~hi:(128 / data_width) random in
-        write ~timeout:1000 ~address ~value:next ~ch sim;
+        let address =
+          Splittable_random.int ~lo:0 ~hi:((capacity_in_bytes / data_bytes) - 1) random
+        in
+        write ~timeout:100 ~address ~value:next ~ch sim;
         read_and_assert ~address ~value:next ~ch sim));
-    [%expect {| |}]
-  ;;
+    [%expect
+      {|
+      (* CR expect_test: Test ran multiple times with different test outputs *)
+      ============================= Output 1 / 8 ==============================
+      Saved waves to /var/home/blake/waves//_read_write.hardcamlwaveform
 
-  (* TODO: Fix error reporting 
-  let%expect_test "read unaligned" =
-    create_sim (fun ~inputs:_ ~outputs:_ sim ->
-      let ch = 0 in
-      read_and_assert ~assertion:`Error ~address:1 ~value:0 ~ch sim;
-      read_and_assert ~assertion:`Error ~address:2 ~value:0 ~ch sim;
-      read_and_assert ~assertion:`Error ~address:3 ~value:0 ~ch sim;
-      read_and_assert ~assertion:`No_error ~address:4 ~value:0 ~ch sim;
-      ());
-    [%expect {| |}]
-  ;;
+      ============================= Output 2 / 8 ==============================
+      Saved waves to /var/home/blake/waves//_read_write_1.hardcamlwaveform
 
-  let%expect_test "write unaligned" =
-    create_sim (fun ~inputs:_ ~outputs:_ sim ->
-      let ch = 0 in
-      write ~assertion:`Error ~address:1 ~value:0 ~ch sim;
-      write ~assertion:`Error ~address:2 ~value:0 ~ch sim;
-      write ~assertion:`Error ~address:3 ~value:0 ~ch sim;
-      write ~assertion:`No_error ~address:4 ~value:0 ~ch sim;
-      ());
-    [%expect {| |}]
-  ;; *)
+      ============================= Output 3 / 8 ==============================
+      Saved waves to /var/home/blake/waves//_read_write_2.hardcamlwaveform
+
+      ============================= Output 4 / 8 ==============================
+      Saved waves to /var/home/blake/waves//_read_write_3.hardcamlwaveform
+
+      ============================= Output 5 / 8 ==============================
+      "TODO: Warning, the hash function for the AXI4 cache is pretty bad (Fn.id)"
+      Saved waves to /var/home/blake/waves//_read_write_4.hardcamlwaveform
+
+      ============================= Output 6 / 8 ==============================
+      "TODO: Warning, the hash function for the AXI4 cache is pretty bad (Fn.id)"
+      Saved waves to /var/home/blake/waves//_read_write_5.hardcamlwaveform
+
+      ============================= Output 7 / 8 ==============================
+      "TODO: Warning, the hash function for the AXI4 cache is pretty bad (Fn.id)"
+      Saved waves to /var/home/blake/waves//_read_write_6.hardcamlwaveform
+
+      ============================= Output 8 / 8 ==============================
+      "TODO: Warning, the hash function for the AXI4 cache is pretty bad (Fn.id)"
+      Saved waves to /var/home/blake/waves//_read_write_7.hardcamlwaveform
+      |}]
+  
+  ;;
 end
 
 include Make_tests (struct
     let num_channels = 1
     let read_latency = 2
     let synthetic_pushback = 1
+    let cache = false
   end)
 
 include Make_tests (struct
     let num_channels = 2
     let read_latency = 1
     let synthetic_pushback = 7
+    let cache = false
   end)
 
 include Make_tests (struct
     let num_channels = 3
     let read_latency = 5
     let synthetic_pushback = 0
+    let cache = false
   end)
 
 include Make_tests (struct
     let num_channels = 7
     let read_latency = 19
     let synthetic_pushback = 4
+    let cache = false
   end)
 
-(* TODO: Add errors to the memory controller and report them via a side channel. *)
+include Make_tests (struct
+    let num_channels = 1
+    let read_latency = 2
+    let synthetic_pushback = 1
+    let cache = true
+  end)
 
-(* TODO: Test byte enables *)
+include Make_tests (struct
+    let num_channels = 2
+    let read_latency = 1
+    let synthetic_pushback = 7
+    let cache = true
+  end)
+
+include Make_tests (struct
+    let num_channels = 3
+    let read_latency = 5
+    let synthetic_pushback = 0
+    let cache = true
+  end)
+
+include Make_tests (struct
+    let num_channels = 7
+    let read_latency = 19
+    let synthetic_pushback = 4
+    let cache = true
+  end)

@@ -4,8 +4,10 @@ open Hardcaml_test_harness
 open Hardcaml_memory_controller
 open! Bits
 
-let debug = true
+let debug = false
+let verbose = false
 let cell_width = 32
+let cell_bytes = 32 / 8
 let read_channels = 4
 let write_channels = 5
 let capacity_in_bytes = 1024
@@ -179,46 +181,55 @@ let%expect_test "manufactured miss" =
     read_and_assert ~address:(addr1 + 4) ~value:39 ~ch:0 sim;
     read_and_assert ~address:addr2 ~value:4321 ~ch:0 sim;
     print_s [%message (stats sim : int Axi4_cache.Request_stage.Statistics.t)]);
-  [%expect {|
+  [%expect
+    {|
     ("Config width" (Axi_config.addr_bits 10))
-    "TODO: Use a real hash function"
-    "TODO: Use a real hash function"
-    "TODO: Use a real hash function"
-    "TODO: Use a real hash function"
-    "TODO: Use a real hash function"
+    "TODO: Warning, the hash function for the AXI4 cache is pretty bad (Fn.id)"
     ("stats sim"
      ((incoming 12) (incoming_write 6) (incoming_need_to_write_back 2)
       (incoming_hit 4)))
-    Saved waves to /var/home/blake/waves//_manufactured_miss.hardcamlwaveform
     |}]
 ;;
 
 let%expect_test "loopback" =
   print_s [%message "Config width" (Axi_config.addr_bits : int)];
+  let oracle_ram = Array.init ~f:(fun _ -> 0) (capacity_in_bytes / cell_bytes) in
   create_sim (fun ~inputs ~outputs:_ sim ->
     inputs.clock.clear := vdd;
     Cyclesim.cycle sim;
     inputs.clock.clear := gnd;
     let random = Splittable_random.of_int 1 in
-    Sequence.range 0 10000
+    Sequence.range 0 20000
     |> Sequence.iter ~f:(fun _ ->
-      let next =
+      let next_write =
         Splittable_random.int ~lo:Int.min_value ~hi:Int.max_value random land 0xFFFFFFFF
       in
       let write_ch = Splittable_random.int ~lo:0 ~hi:(write_channels - 1) random in
       let read_ch = Splittable_random.int ~lo:0 ~hi:(read_channels - 1) random in
-      let address =
-        Splittable_random.int ~lo:0 ~hi:(capacity_in_bytes / cell_width) random
+      let address_read =
+        Splittable_random.int ~lo:0 ~hi:((capacity_in_bytes / cell_bytes) - 1) random
       in
-      write ~timeout:1000 ~address ~value:next ~ch:write_ch sim;
-      read_and_assert ~address ~value:next ~ch:read_ch sim));
+      let address_write =
+        Splittable_random.int ~lo:0 ~hi:((capacity_in_bytes / cell_bytes) - 1) random
+      in
+      if verbose then print_s [%message "Write" (address_write : int) (next_write : int)];
+      write ~timeout:1000 ~address:address_write ~value:next_write ~ch:write_ch sim;
+      Array.set oracle_ram address_write next_write;
+      if verbose then print_s [%message "Read" (address_read : int)];
+      read_and_assert
+        ~address:address_read
+        ~value:(Array.get oracle_ram address_read)
+        ~ch:read_ch
+        sim);
+    print_s [%message (stats sim : int Axi4_cache.Request_stage.Statistics.t)]);
   print_s [%message "Finished"];
-  [%expect {|
+  [%expect
+    {|
     ("Config width" (Axi_config.addr_bits 10))
-    "TODO: Use a real hash function"
-    "TODO: Use a real hash function"
-    "TODO: Use a real hash function"
-    Saved waves to /var/home/blake/waves//_loopback.hardcamlwaveform
+    "TODO: Warning, the hash function for the AXI4 cache is pretty bad (Fn.id)"
+    ("stats sim"
+     ((incoming 40000) (incoming_write 20000) (incoming_need_to_write_back 17612)
+      (incoming_hit 6305)))
     Finished
     |}]
 ;;

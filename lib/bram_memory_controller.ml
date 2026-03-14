@@ -7,7 +7,7 @@ module Make (M : sig
     val capacity_in_bytes : int
     val num_read_channels : int
     val num_write_channels : int
-    val address_width : int
+    val cache_memory : (module Axi4_cache.Config) option
   end) =
 struct
   module Axi_config = struct
@@ -64,6 +64,7 @@ struct
     in
     let core =
       Memory_controller.hierarchical
+        ~build_mode
         ~priority_mode
         scope
         { Memory_controller.I.clock

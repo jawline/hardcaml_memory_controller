@@ -29,13 +29,6 @@ struct
   ;;
 
   let () =
-    if Axi4.data_width <> M.data_bus_width
-    then
-      raise_s
-        [%message "BUG: currently bus widths different to axi width are not supported"]
-  ;;
-
-  let () =
     if Axi4.id_width < M.num_read_channels
     then
       raise_s
@@ -116,18 +109,7 @@ struct
 
   let burst_size =
     let bytes_in_transfer = data_bus_in_bytes in
-    of_unsigned_int
-      ~width:Axi4.O.port_widths.awsize
-      (match bytes_in_transfer with
-       | 1 -> 0b000
-       | 2 -> 0b001
-       | 4 -> 0b010
-       | 8 -> 0b011
-       | 16 -> 0b100
-       | 32 -> 0b101
-       | 64 -> 0b110
-       | 128 -> 0b111
-       | _ -> raise_s [%message "BUG: Unimplemented conversion"])
+    of_unsigned_int ~width:Axi4.O.port_widths.awsize (Int.floor_log2 bytes_in_transfer)
   ;;
 
   (* We send a single entry for all burst lengths. This is 0 (as the length is defined as field + 1). *)
@@ -137,10 +119,8 @@ struct
      addressing, so we need to cast the data width address to a byte address. *)
   let translate_to_axi_byte_address t =
     let data_width = Axi4.data_width / 8 in
-    let word_address_bits =
-      sel_bottom ~width:(Axi4.O.port_widths.araddr - address_bits_for data_width) t
-    in
-    concat_msb [ word_address_bits; zero (address_bits_for data_width) ]
+    let addr_translation_bits = address_bits_for data_width in
+    concat_msb [ t; zero addr_translation_bits ]
   ;;
 
   let create
@@ -196,22 +176,6 @@ struct
     let%hw read_address_in_bytes =
       translate_to_axi_byte_address selected_read_ch.data.address
     in
-    (* TODO: This is ugly, we need to guard against the address being legal
-       when pushing it to the memory controller. This mostly just matters for
-       tests, as illegal reads are undefined in our core. 
-    
-      Instead, what I think we should do here is have an axi4_downcast shim
-      that is capable of taking a wider address range and signalling error. *)
-    let excess_bits_in_address =
-      Int.abs
-        (address_width - (Axi4.O.port_widths.awaddr - address_bits_for data_bus_in_bytes))
-    in
-    let%hw no_bits_out_of_range_write =
-      sel_top ~width:excess_bits_in_address address_fifo_data.address ==:. 0
-    in
-    let%hw no_bits_out_of_range_read =
-      sel_top ~width:excess_bits_in_address selected_read_ch.data.address ==:. 0
-    in
     { O.read_response =
         List.init
           ~f:(fun channel ->
@@ -234,7 +198,7 @@ struct
     ; write_error = gnd
     ; memory =
         { wvalid = data_fifo.valid
-        ; awvalid = address_fifo.valid &: no_bits_out_of_range_write
+        ; awvalid = address_fifo.valid
         ; awid = uextend ~width:Axi4.O.port_widths.awid address_fifo_data.id
         ; awaddr = write_address_in_bytes
         ; wdata = data_fifo_data.data
@@ -243,7 +207,7 @@ struct
         ; awburst = fixed_burst
         ; awlen = burst_length
         ; awsize = burst_size
-        ; arvalid = selected_read_ch.valid &: no_bits_out_of_range_read
+        ; arvalid = selected_read_ch.valid
         ; arid = uextend ~width:Axi4.O.port_widths.arid which_read_ch
         ; araddr = read_address_in_bytes
         ; rready = vdd

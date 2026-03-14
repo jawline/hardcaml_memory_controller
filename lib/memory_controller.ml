@@ -8,11 +8,15 @@ module Make
        val capacity_in_bytes : int
        val num_read_channels : int
        val num_write_channels : int
-       val address_width : int
+       val cache_memory : (module Axi4_cache.Config) option
      end)
     (Axi : Axi4.S) =
 struct
   module Memory_bus = Memory_bus.Make (struct
+      let address_width =
+        Axi.O.port_widths.awaddr - address_bits_for (M.data_bus_width / 8)
+      ;;
+
       include M
     end)
 
@@ -59,6 +63,7 @@ struct
 
   let create
         ~priority_mode
+        ~build_mode
         scope
         ({ clock; write_to_controller; read_to_controller; memory } : _ I.t)
     =
@@ -77,15 +82,41 @@ struct
         { Read_arbitrator.I.clock; ch_to_controller = read_to_controller }
     in
     let core =
-      Core.hierarchical
-        scope
-        { Core.I.clock
-        ; which_write_ch = write_arbitrator.which_ch
-        ; selected_write_ch = write_arbitrator.selected_ch
-        ; which_read_ch = read_arbitrator.which_ch
-        ; selected_read_ch = read_arbitrator.selected_ch
-        ; memory
+      match M.cache_memory with
+      | Some (module C : Axi4_cache.Config) ->
+        let module Axi4_cache = Axi4_cache.Make (C) (Memory_bus) (Axi) in
+        let o =
+          Axi4_cache.hierarchical
+            ~build_mode
+            scope
+            { Axi4_cache.I.clock
+            ; requests =
+                { which_write_ch = write_arbitrator.which_ch
+                ; selected_write_ch = write_arbitrator.selected_ch
+                ; which_read_ch = read_arbitrator.which_ch
+                ; selected_read_ch = read_arbitrator.selected_ch
+                }
+            ; dn = memory
+            }
+        in
+        { Core.O.write_ready = o.write_ready
+        ; read_ready = o.read_ready
+        ; write_response = o.response.write_response
+        ; read_response = o.response.read_response
+        ; read_error = gnd (* TODO: *)
+        ; write_error = gnd (* TODO: *)
+        ; memory = o.dn
         }
+      | None ->
+        Core.hierarchical
+          scope
+          { Core.I.clock
+          ; which_write_ch = write_arbitrator.which_ch
+          ; selected_write_ch = write_arbitrator.selected_ch
+          ; which_read_ch = read_arbitrator.which_ch
+          ; selected_read_ch = read_arbitrator.selected_ch
+          ; memory
+          }
     in
     (* TODO: Propagate errors *)
     { O.write_to_controller =
@@ -102,8 +133,12 @@ struct
     }
   ;;
 
-  let hierarchical ~priority_mode (scope : Scope.t) (input : Signal.t I.t) =
+  let hierarchical ~priority_mode ~build_mode (scope : Scope.t) (input : Signal.t I.t) =
     let module H = Hierarchy.In_scope (I) (O) in
-    H.hierarchical ~scope ~name:"memory_controller" (create ~priority_mode) input
+    H.hierarchical
+      ~scope
+      ~name:"memory_controller"
+      (create ~priority_mode ~build_mode)
+      input
   ;;
 end

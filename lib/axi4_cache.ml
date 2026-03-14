@@ -2,15 +2,14 @@ open Core
 open Hardcaml
 open Signal
 
-module Make
-    (Config : sig
-       val line_width : int (* in memory cells *)
-       val num_cache_lines : int
-       val num_read_channels : int
-       val num_write_channels : int
-     end)
-    (Memory_bus : Memory_bus_intf.S)
-    (Axi4_out : Axi4.S) =
+module type Config = sig
+  val line_width : int (* in memory cells *)
+  val num_cache_lines : int
+  val num_read_channels : int
+  val num_write_channels : int
+end
+
+module Make (Config : Config) (Memory_bus : Memory_bus_intf.S) (Axi4_out : Axi4.S) =
 struct
   open Config
   open Memory_bus
@@ -28,7 +27,6 @@ struct
         (module Comb : Comb.S with type t = a)
         (t : a)
     =
-    print_s [%message "TODO: Use a real hash function"];
     let line_addr_width = Comb.address_bits_for num_cache_lines in
     Comb.uresize ~width:line_addr_width t
   ;;
@@ -117,6 +115,7 @@ struct
     end
 
     let create _scope (i : _ I.t) =
+    print_s [%message "TODO: Warning, the hash function for the AXI4 cache is pretty bad (Fn.id)"];
       let sel = mux2 i.requests.selected_write_ch.valid in
       (* For now, lets just do write priority since our only writers are DMA and the core which needs to read in between. *)
       { O.read_ready = ~:(i.downstream_locked) &: ~:(i.requests.selected_write_ch.valid)
@@ -219,6 +218,19 @@ struct
         incoming &: ~:incoming_is_write &: ~:incoming_read_is_hit
       in
       let%hw issuing_write_request = incoming &: need_to_flush_line in
+      let%hw acked_write_request = issuing_write_request &: i.write_response.finished in 
+      (* We issue the cache line eviction write and read concurrently. In the case that we are flushing the same cell
+         (e.g., we have dws 1 and 2 and we need dw 3), we need to strobe the ram write back to make sure we don't
+         read the stale data we just wrote. *)
+      let%hw memory_write_back_strobe =
+        Clocking.reg
+          ~enable:issuing_read_request
+          i.clock
+          (mux2
+             (incoming &: incoming_is_correct_line)
+             ~:(i.ram_read.meta.strb)
+             (ones (width i.ram_read.meta.strb)))
+      in
       let%hw awaiting_read =
         Clocking.reg_fb
           ~width:1
@@ -228,7 +240,7 @@ struct
       let%hw awaiting_write =
         Clocking.reg_fb
           ~width:1
-          ~f:(fun t -> mux2 i.write_response.finished gnd (t |: issuing_write_request))
+          ~f:(fun t -> mux2 i.write_response.finished gnd (t |: (issuing_write_request &: ~:(acked_write_request))))
           i.clock
       in
       let%hw all_memory_operations_done =
@@ -246,8 +258,7 @@ struct
             ~width:1
             ~f:(fun t ->
               t
-              |: (
-                  (issuing_write_request |: issuing_read_request))
+              |: ((issuing_write_request &: ~:(acked_write_request)) |: issuing_read_request)
               &: ~:all_memory_operations_done)
             i.clock;
       let%hw.Ram.Write.Of_signal mem_op_write_back =
@@ -258,7 +269,7 @@ struct
             |> cache_address_to_hashed_line_address
         ; address = byte_to_cell_address i.read_response.address |> cell_to_cache_address
         ; datas = split_lsb ~part_width:cell_width i.read_response.data
-        ; wstrb = ones (width i.ram_read.meta.strb) (* We read the entire line *)
+        ; wstrb = memory_write_back_strobe
         ; dirty = gnd (* Fresh from ram *)
         }
       in

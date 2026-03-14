@@ -6,8 +6,8 @@ module Make
        val capacity_in_bytes : int
        val num_read_channels : int
        val num_write_channels : int
-       val address_width : int
        val data_bus_width : int
+       val cache_memory : (module Axi4_cache.Config) option
      end)
     (Axi : Axi4.S) : sig
   module Memory_bus : Memory_bus_intf.S
@@ -42,6 +42,7 @@ module Make
 
   val hierarchical
     :  priority_mode:Priority_mode.t
+    -> build_mode:Build_mode.t
     -> Scope.t
     -> Signal.t I.t
     -> Signal.t O.t

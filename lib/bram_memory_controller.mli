@@ -11,6 +11,7 @@ module Make (M : sig
     val num_write_channels : int
     val address_width : int
     val data_bus_width : int
+    val cache_memory : (module Axi4_cache.Config) option
   end) : sig
   module Memory_bus : Memory_bus_intf.S
 
