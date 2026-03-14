@@ -90,8 +90,6 @@ let rec wait_for_write_ack ~timeout ~ch sim =
 
 let rec write ~timeout ~address ~value ~ch sim =
   if timeout = 0 then raise_s [%message "BUG: Timeout writing"];
-  (* Delay a cycle so we know we don't pick up the state of the previous read. *)
-  Cyclesim.cycle sim;
   let inputs : _ Axi4_cache.I.t = Cyclesim.inputs sim in
   let ch_tx = inputs.requests.selected_write_ch in
   ch_tx.valid := vdd;

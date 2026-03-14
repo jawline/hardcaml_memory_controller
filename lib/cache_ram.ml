@@ -28,6 +28,7 @@ struct
   module Write = struct
     type 'a t =
       { valid : 'a
+      ; cell_valid : 'a
       ; cache_address : 'a [@bits cache_address_width]
       ; datas : 'a list [@bits cell_width] [@length line_size]
       ; address : 'a [@bits memory_address_width]
@@ -107,7 +108,7 @@ struct
         ~write_address:i.write.cache_address
         ~data:
           (Line_metadata.Of_signal.pack
-             { valid = vdd
+             { valid = i.write.cell_valid
              ; address = i.write.address
              ; strb = i.write.wstrb
              ; dirty = i.write.dirty

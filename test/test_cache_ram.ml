@@ -27,6 +27,7 @@ let create_sim f =
 let write ~cache_line ~address ~wstrb ~datas sim =
   let inputs : _ Ram.I.t = Cyclesim.inputs sim in
   inputs.write.valid := vdd;
+  inputs.write.cell_valid := vdd;
   inputs.write.cache_address := of_unsigned_int ~width:Ram.cache_address_width cache_line;
   inputs.write.address := of_unsigned_int ~width:32 address;
   List.iter

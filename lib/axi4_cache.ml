@@ -268,6 +268,7 @@ struct
             i.clock;
       let%hw.Ram.Write.Of_signal mem_op_write_back =
         { Ram.Write.valid = mem_read_done
+        ; cell_valid = vdd
         ; cache_address =
             byte_to_cell_address i.read_response.address
             |> cell_to_cache_address
@@ -280,6 +281,7 @@ struct
       in
       let%hw.Ram.Write.Of_signal incoming_write_back =
         { Ram.Write.valid = incoming &: incoming_is_write
+        ; cell_valid = vdd
         ; cache_address =
             cell_to_cache_address i.selected.address
             |> cache_address_to_hashed_line_address
@@ -406,6 +408,49 @@ struct
     ;;
   end
 
+  module Clear_on_startup = struct
+    module I = struct
+      type 'a t = { clock : 'a Clocking.t } [@@deriving hardcaml]
+    end
+
+    module O = struct
+      type 'a t =
+        { active : 'a
+        ; ram_write : 'a Ram.Write.t
+        }
+      [@@deriving hardcaml]
+    end
+
+    let create scope (i : _ I.t) =
+      let%hw finishing = wire 1 in
+      let%hw starting_up = Clocking.reg ~clear_to:vdd ~enable:finishing i.clock gnd in
+      let%hw clear_cell =
+        Clocking.reg_fb
+          ~enable:starting_up
+          ~width:(address_bits_for num_cache_lines)
+          ~f:(mod_counter ~max:(num_cache_lines - 1))
+          i.clock
+      in
+      finishing <-- (clear_cell ==:. num_cache_lines - 1);
+      { O.active = starting_up
+      ; ram_write =
+          { Ram.Write.valid = starting_up
+          ; cache_address = clear_cell
+          ; cell_valid = gnd
+          ; address = zero Ram.Write.port_widths.address
+          ; datas = List.init ~f:(fun _ -> zero cell_width) line_width
+          ; wstrb = zero Ram.Write.port_widths.wstrb
+          ; dirty = zero Ram.Write.port_widths.dirty
+          }
+      }
+    ;;
+
+    let hierarchical (scope : Scope.t) (input : Signal.t I.t) =
+      let module H = Hierarchy.In_scope (I) (O) in
+      H.hierarchical ~scope ~name:"clear_on_startup" create input
+    ;;
+  end
+
   module I = struct
     type 'a t =
       { clock : 'a Clocking.t
@@ -473,10 +518,18 @@ struct
         ; axi = dn
         }
     in
-    downstream_locked <-- request_stage.locked;
+    let startup_clear =
+      Clear_on_startup.hierarchical scope { Clear_on_startup.I.clock }
+    in
+    downstream_locked <-- (startup_clear.active |: request_stage.locked);
     Memory_requester.Read.O.Of_signal.(read_response <-- memory_read);
     Memory_requester.Write.O.Of_signal.(write_response <-- memory_write);
-    Ram.Write.Of_signal.(write <-- request_stage.ram_write);
+    Ram.Write.Of_signal.(
+      write
+      <-- Ram.Write.Of_signal.mux2
+            startup_clear.active
+            startup_clear.ram_write
+            request_stage.ram_write);
     { O.response = request_stage.memory_responses
     ; dn = Axi4_out.O.map2 ~f:( |: ) memory_read.axi memory_write.axi
     ; read_ready = arb.read_ready

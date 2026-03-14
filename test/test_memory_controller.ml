@@ -111,8 +111,6 @@ struct
 
   let rec write ~timeout ~address ~value ~ch sim =
     if timeout = 0 then raise_s [%message "BUG: Timeout writing"];
-    (* Delay a cycle so we know we don't pick up the state of the previous read. *)
-    Cyclesim.cycle sim;
     let inputs : _ Memory_controller.I.t = Cyclesim.inputs sim in
     let ch_tx = List.nth_exn inputs.write_to_controller ch in
     ch_tx.valid := vdd;
