@@ -184,7 +184,6 @@ let%expect_test "manufactured miss" =
   [%expect
     {|
     ("Config width" (Axi_config.addr_bits 10))
-    "TODO: Warning, the hash function for the AXI4 cache is pretty bad (Fn.id)"
     ("stats sim"
      ((incoming 12) (incoming_write 6) (incoming_need_to_write_back 2)
       (incoming_hit 4)))
@@ -226,7 +225,6 @@ let%expect_test "loopback" =
   [%expect
     {|
     ("Config width" (Axi_config.addr_bits 10))
-    "TODO: Warning, the hash function for the AXI4 cache is pretty bad (Fn.id)"
     ("stats sim"
      ((incoming 40000) (incoming_write 20000) (incoming_need_to_write_back 17612)
       (incoming_hit 6305)))

@@ -116,9 +116,7 @@ struct
     end
 
     let create _scope (i : _ I.t) =
-      print_s
-        [%message
-          "TODO: Warning, the hash function for the AXI4 cache is pretty bad (Fn.id)"];
+      (* TODO:  Warning, the hash function for the AXI4 cache is pretty bad (Fn.id) *)
       let sel = mux2 i.requests.selected_write_ch.valid in
       (* For now, lets just do write priority since our only writers are DMA and the core which needs to read in between. *)
       { O.read_ready = ~:(i.downstream_locked) &: ~:(i.requests.selected_write_ch.valid)

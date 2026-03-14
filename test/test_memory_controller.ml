@@ -207,19 +207,15 @@ struct
       Saved waves to /var/home/blake/waves//_read_write_3.hardcamlwaveform
 
       ============================= Output 5 / 8 ==============================
-      "TODO: Warning, the hash function for the AXI4 cache is pretty bad (Fn.id)"
       Saved waves to /var/home/blake/waves//_read_write_4.hardcamlwaveform
 
       ============================= Output 6 / 8 ==============================
-      "TODO: Warning, the hash function for the AXI4 cache is pretty bad (Fn.id)"
       Saved waves to /var/home/blake/waves//_read_write_5.hardcamlwaveform
 
       ============================= Output 7 / 8 ==============================
-      "TODO: Warning, the hash function for the AXI4 cache is pretty bad (Fn.id)"
       Saved waves to /var/home/blake/waves//_read_write_6.hardcamlwaveform
 
       ============================= Output 8 / 8 ==============================
-      "TODO: Warning, the hash function for the AXI4 cache is pretty bad (Fn.id)"
       Saved waves to /var/home/blake/waves//_read_write_7.hardcamlwaveform
       |}]
   ;;
