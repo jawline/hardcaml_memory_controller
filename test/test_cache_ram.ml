@@ -40,7 +40,7 @@ let write ~cache_line ~address ~wstrb ~datas sim =
 let read ~cache_line sim =
   let inputs : _ Ram.I.t = Cyclesim.inputs sim in
   inputs.read.valid := vdd;
-  inputs.read.cell_address := of_unsigned_int ~width:Ram.cache_address_width cache_line;
+  inputs.read.cache_address := of_unsigned_int ~width:Ram.cache_address_width cache_line;
   Cyclesim.cycle sim;
   let outputs : _ Ram.O.t = Cyclesim.outputs ~clock_edge:After sim in
   Ram.O.map ~f:( ! ) outputs |> Ram.O.map ~f:Bits.to_int_trunc

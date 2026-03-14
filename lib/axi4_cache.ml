@@ -19,29 +19,34 @@ struct
   let cell_bytes = cell_width / 8
   let line_size_alignment_bits = address_bits_for (cell_bytes * line_width)
   let cell_to_bytes_bits = address_bits_for cell_bytes
-  let byte_address_width = Memory_bus.Read.port_widths.address + cell_to_bytes_bits
-  let byte_to_cell_addr = drop_bottom ~width:cell_to_bytes_bits
+  let line_to_cell_bits = line_size_alignment_bits - cell_to_bytes_bits
+  let cell_address_width = Memory_bus.Read.port_widths.address
+  let byte_to_cell_address = drop_bottom ~width:cell_to_bytes_bits
 
-  let line_address_width =
+  let cell_address_to_hashed_line_address t =
+    print_s [%message "TODO: Use a real hash function"];
+    let line_addr_width = address_bits_for num_cache_lines in
+    uresize ~width:line_addr_width t
+  ;;
+
+  let ram_metadata_address_width =
     Memory_bus.Read.port_widths.address + cell_to_bytes_bits - line_size_alignment_bits
   ;;
 
-  let to_line_address t =
-    if width t < line_address_width
-    then uextend ~width:line_address_width t
-    else sel_top ~width:line_address_width t
+  let cell_to_cache_address t =
+    print_s [%message "Width of address:" (width t : int)];
+    drop_bottom ~width:cell_to_bytes_bits t |> uresize ~width:ram_metadata_address_width
   ;;
 
   let cell_address_to_bytes t = concat_msb [ t; zero cell_to_bytes_bits ]
   let id_width = Int.max num_read_channels num_write_channels
   let id_bits = address_bits_for id_width
-  let () = print_s [%message "Line address width:" (line_address_width : int)]
 
   module Ram = Cache_ram.Make (struct
       let cell_width = cell_width
       let line_size = line_width
       let num_cache_lines = num_cache_lines
-      let memory_address_width = line_address_width
+      let memory_address_width = ram_metadata_address_width
     end)
 
   module Memory_requester =
@@ -51,12 +56,6 @@ struct
         let id_bits = id_width
       end)
       (Axi4_out)
-
-  let hash_cell_address address =
-    print_s [%message "TODO: Use a real hash function"];
-    let w = address_bits_for num_cache_lines in
-    if width address > w then sel_bottom ~width:w address else uextend ~width:w address
-  ;;
 
   module Memory_requests = struct
     type 'a t =
@@ -80,7 +79,7 @@ struct
     type 'a t =
       { valid : 'a
       ; is_write : 'a
-      ; address : 'a [@bits byte_address_width]
+      ; address : 'a [@bits cell_address_width]
       ; write_data : 'a [@bits Write.port_widths.write_data]
       ; id : 'a [@bits address_bits_for id_width]
       }
@@ -162,7 +161,7 @@ struct
       let%hw incoming_is_write = i.selected.is_write in
       let%hw incoming_is_hit =
         i.ram_read.meta.valid
-        &: (i.ram_read.meta.address ==: to_line_address i.selected.address)
+        &: (i.ram_read.meta.address ==: cell_to_cache_address i.selected.address)
       in
       let%hw no_write_flush_needed = incoming_is_hit |: ~:(i.ram_read.meta.valid) in
       let%hw mem_op_done = i.request_response.finished in
@@ -176,19 +175,24 @@ struct
                   &: mux2 incoming_is_write ~:no_write_flush_needed ~:incoming_is_hit)
               &: ~:mem_op_done)
             i.clock;
-      let byte_to_hashed t = hash_cell_address (byte_to_cell_addr t) in
       let mem_op_write_back =
         { Ram.Write.valid = mem_op_done
-        ; cache_address = byte_to_hashed i.request_response.address
-        ; address = to_line_address i.request_response.address
+        ; cache_address =
+            byte_to_cell_address i.request_response.address
+            |> cell_to_cache_address
+            |> cell_address_to_hashed_line_address
+        ; address =
+            byte_to_cell_address i.request_response.address |> cell_to_cache_address
         ; datas = split_lsb ~part_width:cell_width i.request_response.data
         ; wstrb = ones (width i.ram_read.meta.strb) (* We read the entire line *)
         }
       in
       let incoming_write_back =
         { Ram.Write.valid = incoming &: incoming_is_write
-        ; cache_address = byte_to_hashed i.selected.address
-        ; address = to_line_address i.selected.address (* Already in cell space *)
+        ; cache_address =
+            cell_to_cache_address i.selected.address
+            |> cell_address_to_hashed_line_address
+        ; address = cell_to_cache_address i.selected.address (* Already in cell space *)
         ; datas =
             List.init ~f:(fun _ -> i.selected.write_data) line_width
             (* We repeat the same data as the wstrb guards against writes to the other cells. *)
@@ -198,8 +202,7 @@ struct
                the cell to memory in which time the cell remains locked. *)
             (let onehot =
                binary_to_onehot
-                 (drop_bottom ~width:cell_to_bytes_bits i.selected.address
-                  |> sel_bottom ~width:(address_bits_for line_width))
+                 (sel_bottom ~width:(address_bits_for line_width) i.selected.address)
              in
              let existing_strb =
                repeat ~count:(width i.ram_read.meta.strb) incoming_is_hit
@@ -225,9 +228,9 @@ struct
       let%hw write_channel = i.selected.id in
       (* We can pre ack the write even if it's a cache miss as the controller will lock while it flushes the line. *)
       let%hw write_done = incoming &: incoming_is_write in
+      let%hw byte_response_address = byte_to_cell_address i.request_response.address in
       let%hw which_read_data_cell =
-        byte_to_cell_addr i.request_response.address
-        |> sel_bottom ~width:(address_bits_for line_width)
+        sel_bottom ~width:(address_bits_for line_width) byte_response_address
       in
       { O.locked =
           (* We lock for this cycle if it's a write so we can write back to the
@@ -246,9 +249,15 @@ struct
                   { With_valid.valid = read_done &: (read_channel ==:. ch)
                   ; value =
                       { Read_response.read_data =
-                          mux
-                            which_read_data_cell
-                            (split_lsb ~part_width:cell_width i.request_response.data)
+                          (let%hw read_parts =
+                             mux2
+                               incoming
+                               (concat_lsb i.ram_read.read_data)
+                               i.request_response.data
+                           in
+                           mux
+                             which_read_data_cell
+                             (split_lsb ~part_width:cell_width read_parts))
                       }
                   })
                 num_read_channels
@@ -305,13 +314,16 @@ struct
     let arb = Arb.hierarchical scope { Arb.I.clock; requests; downstream_locked } in
     let write = Ram.Write.Of_signal.wires () in
     let ram =
+      print_s [%message (width arb.selected.address : int)];
       Ram.hierarchical
         ~build_mode
         scope
         { Ram.I.clock
         ; read =
             { valid = arb.selected.valid
-            ; cell_address = hash_cell_address arb.selected.address
+            ; cache_address =
+                cell_to_cache_address arb.selected.address
+                |> cell_address_to_hashed_line_address
             }
         ; write
         }

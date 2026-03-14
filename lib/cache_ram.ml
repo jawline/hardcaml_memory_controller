@@ -20,7 +20,7 @@ struct
   module Read = struct
     type 'a t =
       { valid : 'a
-      ; cell_address : 'a [@bits cache_address_width]
+      ; cache_address : 'a [@bits cache_address_width]
       }
     [@@deriving hardcaml]
   end
@@ -89,7 +89,7 @@ struct
             ~write_address:i.write.cache_address
             ~data:write_data
             ~read_enable:i.read.valid
-            ~read_address:i.read.cell_address
+            ~read_address:i.read.cache_address
             ~read_latency
             ())
         (List.zip_exn i.write.datas wstrb_per_cell)
@@ -108,7 +108,7 @@ struct
              { valid = vdd; address = i.write.address; strb = i.write.wstrb }
            |> uextend ~width:min_metadata_size)
         ~read_enable:i.read.valid
-        ~read_address:i.read.cell_address
+        ~read_address:i.read.cache_address
         ~read_latency
         ()
       |> sel_bottom ~width:Line_metadata.sum_of_port_widths
