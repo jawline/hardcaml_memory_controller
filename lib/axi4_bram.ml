@@ -93,11 +93,12 @@ struct
         ~read_latency
         ()
     in
+    let%hw address_ready_and_not_push_back = memory.arvalid &: ~:should_push_back in
     { O.memory =
         { Axi.I.bvalid = reg reg_spec (memory.awvalid &: ~:should_push_back)
         ; bid = reg reg_spec memory.awid
         ; bresp = zero 2
-        ; rvalid = pipeline ~n:read_latency reg_spec (memory.arvalid &: ~:should_push_back)
+        ; rvalid = pipeline ~n:read_latency reg_spec address_ready_and_not_push_back
         ; rid = pipeline ~n:read_latency reg_spec memory.arid
         ; rdata =
             pipeline

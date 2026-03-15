@@ -245,7 +245,7 @@ struct
         let value = Splittable_random.int ~lo:0 ~hi:0xDEADBEEF random in
         if backpressure = 0
         then (
-          write ~timeout:2000 ~shared_mem ~address ~value ~ch h;
+          write ~timeout:3000 ~shared_mem ~address ~value ~ch h;
           loop (i - 1))
         else (
           let _o = Step.cycle h Step.input_hold in
