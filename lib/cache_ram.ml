@@ -34,7 +34,10 @@ struct
       ; cache_address : 'a [@bits cache_address_width]
       ; datas : 'a list [@bits cell_width] [@length line_size]
       ; address : 'a [@bits memory_address_width]
-      ; wstrb : 'a [@bits strb_width]
+      ; meta_wstrb : 'a [@bits strb_width]
+      ; real_wstrb : 'a
+            [@bits strb_width]
+            (* We split out the meta strb and real wstrb so we can avoid writing partial cells simply. *)
       ; dirty : 'a
       }
     [@@deriving hardcaml]
@@ -83,7 +86,7 @@ struct
 
   let create ~build_mode _scope (i : _ I.t) =
     let reg_spec = Clocking.to_spec i.clock in
-    let wstrb_per_cell = split_lsb ~part_width:(cell_width / 8) i.write.wstrb in
+    let real_wstrb_per_cell = split_lsb ~part_width:(cell_width / 8) i.write.real_wstrb in
     let line_read_datas =
       List.map
         ~f:(fun (write_data, wstrb) ->
@@ -97,7 +100,7 @@ struct
             ~read_address:i.read.cache_address
             ~read_latency
             ())
-        (List.zip_exn i.write.datas wstrb_per_cell)
+        (List.zip_exn i.write.datas real_wstrb_per_cell)
     in
     let line_metadata =
       let min_metadata_size =
@@ -112,7 +115,7 @@ struct
           (Line_metadata.Of_signal.pack
              { valid = i.write.cell_valid
              ; address = i.write.address
-             ; strb = i.write.wstrb
+             ; strb = i.write.meta_wstrb
              ; dirty = i.write.dirty
              }
            |> uextend ~width:min_metadata_size)

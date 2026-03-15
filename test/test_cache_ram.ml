@@ -33,7 +33,8 @@ let write ~cache_line ~address ~wstrb ~datas sim =
   List.iter
     ~f:(fun (data, v) -> data := of_unsigned_int ~width:cell_width v)
     (List.zip_exn inputs.write.datas datas);
-  inputs.write.wstrb := wstrb;
+  inputs.write.real_wstrb := wstrb;
+  inputs.write.meta_wstrb := wstrb;
   Cyclesim.cycle sim;
   inputs.write.valid := vdd
 ;;
@@ -72,7 +73,7 @@ let%expect_test "basic read/write" =
     read_write
       ~cache_line:1
       ~address:0xAFAFAF
-      ~wstrb:Bits.(concat_lsb [ zero 8 ; ones 16 ; zero 8 ])
+      ~wstrb:Bits.(concat_lsb [ zero 8; ones 16; zero 8 ])
       ~datas:[ 0xFF; 0; 0xFF; 0xFF; 0xFF; 0xFF; 0xFF; 0xFF ]
       sim);
   [%expect

@@ -91,6 +91,7 @@ struct
       ; is_write : 'a
       ; address : 'a [@bits cell_address_width]
       ; write_data : 'a [@bits Write.port_widths.write_data]
+      ; strb : 'a [@bits cell_bytes]
       ; id : 'a [@bits id_bits]
       }
     [@@deriving hardcaml]
@@ -136,6 +137,7 @@ struct
                 i.requests.selected_write_ch.data.address
                 i.requests.selected_read_ch.data.address
           ; write_data = i.requests.selected_write_ch.data.write_data
+          ; strb = sel i.requests.selected_write_ch.data.wstrb (ones (cell_width / 8))
           ; id =
               sel
                 (uextend ~width:id_bits i.requests.which_write_ch)
@@ -187,13 +189,15 @@ struct
 
     let create scope (i : _ I.t) =
       (* a one hot encoded cell mask of the cell we want to access. *)
-        let%hw cell_wise_strb =
-          binary_to_onehot
-            (sel_bottom ~width:(address_bits_for line_width) i.selected.address)
-        in
+      let%hw cell_wise_strb =
+        binary_to_onehot
+          (sel_bottom ~width:(address_bits_for line_width) i.selected.address)
+      in
       let%hw selected_strb =
         (* TODO: Think harder about this, if we write one byte out and then request 4 bytes we always need to read from cache which sucks in write then read the same memory scenarios. *)
-        bits_lsb cell_wise_strb |> List.map ~f:(repeat ~count:cell_bytes) |> concat_lsb
+        bits_lsb cell_wise_strb
+        |> List.map ~f:(fun valid -> repeat ~count:cell_bytes valid &: i.selected.strb)
+        |> concat_lsb
       in
       let%hw locked_reg = wire 1 in
       let%hw incoming = i.selected.valid in
@@ -205,10 +209,7 @@ struct
       let%hw incoming_read_is_hit =
         i.ram_read.meta.valid
         &: (i.ram_read.meta.address ==: cell_to_cache_address i.selected.address)
-        &: (popcount (selected_strb &: i.ram_read.meta.strb)
-            ==:. cell_bytes
-                 (* TODO: I think we can do this better, counting that the whole cell is in cache on a read. *)
-           )
+        &: (selected_strb &: i.ram_read.meta.strb ==: selected_strb)
       in
       let%hw need_to_flush_line =
         let%hw flush_because_evict_on_read =
@@ -287,7 +288,8 @@ struct
             |> cache_address_to_hashed_line_address
         ; address = byte_to_cell_address i.read_response.address |> cell_to_cache_address
         ; datas = split_lsb ~part_width:cell_width i.read_response.data
-        ; wstrb = memory_write_back_strobe
+        ; real_wstrb = memory_write_back_strobe
+        ; meta_wstrb = memory_write_back_strobe
         ; dirty = gnd (* Fresh from ram *)
         }
       in
@@ -303,7 +305,8 @@ struct
               ~f:(fun which_cell existing_data ->
                 mux2 cell_wise_strb.:(which_cell) i.selected.write_data existing_data)
               i.ram_read.read_data
-        ; wstrb =
+        ; real_wstrb = selected_strb (* Only actually write the bytes we see to RAM. *)
+        ; meta_wstrb =
             (* On a hit we just rewrite a DW, on a miss we zero the rest of
                the cell. This happens asynchronously with a transmission of
                the cell to memory in which time the cell remains locked. *)
@@ -448,7 +451,8 @@ struct
           ; cell_valid = gnd
           ; address = zero Ram.Write.port_widths.address
           ; datas = List.init ~f:(fun _ -> zero cell_width) line_width
-          ; wstrb = zero Ram.Write.port_widths.wstrb
+          ; real_wstrb = zero Ram.Write.port_widths.real_wstrb
+          ; meta_wstrb = zero Ram.Write.port_widths.meta_wstrb
           ; dirty = zero Ram.Write.port_widths.dirty
           }
       }
