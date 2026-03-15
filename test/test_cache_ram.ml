@@ -33,7 +33,7 @@ let write ~cache_line ~address ~wstrb ~datas sim =
   List.iter
     ~f:(fun (data, v) -> data := of_unsigned_int ~width:cell_width v)
     (List.zip_exn inputs.write.datas datas);
-  inputs.write.wstrb := of_unsigned_int ~width:line_size wstrb;
+  inputs.write.wstrb := wstrb;
   Cyclesim.cycle sim;
   inputs.write.valid := vdd
 ;;
@@ -60,31 +60,31 @@ let%expect_test "basic read/write" =
     read_write
       ~cache_line:1
       ~address:0xDEADBEEF
-      ~wstrb:0b1111_1111
+      ~wstrb:Bits.(ones 32)
       ~datas:[ 0xFF; 0xFF; 0xFF; 0xFF; 0xFF; 0xFF; 0xFF; 0xFF ]
       sim;
     read_write
       ~cache_line:1
       ~address:0xDEADBEEF
-      ~wstrb:0b1111_1111
+      ~wstrb:Bits.(ones 32)
       ~datas:[ 0x1; 0; 0xFF; 0x3; 0x6; 0x4; 0x9; 0x3 ]
       sim;
     read_write
       ~cache_line:1
       ~address:0xAFAFAF
-      ~wstrb:0b0011_1100
+      ~wstrb:Bits.(concat_lsb [ zero 8 ; ones 16 ; zero 8 ])
       ~datas:[ 0xFF; 0; 0xFF; 0xFF; 0xFF; 0xFF; 0xFF; 0xFF ]
       sim);
   [%expect
     {|
     ("read ~cache_line:1 sim"
-     ((meta ((valid 1) (address 3735928559) (strb 255) (dirty 0)))
+     ((meta ((valid 1) (address 3735928559) (strb 4294967295) (dirty 0)))
       (read_data (255 255 255 255 255 255 255 255))))
     ("read ~cache_line:1 sim"
-     ((meta ((valid 1) (address 3735928559) (strb 255) (dirty 0)))
+     ((meta ((valid 1) (address 3735928559) (strb 4294967295) (dirty 0)))
       (read_data (1 0 255 3 6 4 9 3))))
     ("read ~cache_line:1 sim"
-     ((meta ((valid 1) (address 11513775) (strb 60) (dirty 0)))
+     ((meta ((valid 1) (address 11513775) (strb 16776960) (dirty 0)))
       (read_data (1 0 255 255 255 255 9 3))))
     |}]
 ;;

@@ -15,6 +15,8 @@ module Make (Config : sig
 struct
   open Config
 
+  (* We still need to byte address the strobe so we can tell which bytes to flush. *)
+  let strb_width = cell_width * line_size / 8
   let cache_address_width = address_bits_for num_cache_lines
 
   module Read = struct
@@ -32,7 +34,7 @@ struct
       ; cache_address : 'a [@bits cache_address_width]
       ; datas : 'a list [@bits cell_width] [@length line_size]
       ; address : 'a [@bits memory_address_width]
-      ; wstrb : 'a [@bits line_size]
+      ; wstrb : 'a [@bits strb_width]
       ; dirty : 'a
       }
     [@@deriving hardcaml]
@@ -42,7 +44,7 @@ struct
     type 'a t =
       { valid : 'a
       ; address : 'a [@bits memory_address_width]
-      ; strb : 'a [@bits line_size]
+      ; strb : 'a [@bits strb_width]
       ; dirty : 'a
       }
     [@@deriving hardcaml]
@@ -81,14 +83,14 @@ struct
 
   let create ~build_mode _scope (i : _ I.t) =
     let reg_spec = Clocking.to_spec i.clock in
-    let wstrb_per_cell = bits_lsb i.write.wstrb in
+    let wstrb_per_cell = split_lsb ~part_width:(cell_width / 8) i.write.wstrb in
     let line_read_datas =
       List.map
         ~f:(fun (write_data, wstrb) ->
           mkram
             ~build_mode
             ~clock:i.clock
-            ~write_enable:(repeat ~count:(cell_width / 8) (i.write.valid &: wstrb))
+            ~write_enable:(repeat ~count:(cell_width / 8) i.write.valid &: wstrb)
             ~write_address:i.write.cache_address
             ~data:write_data
             ~read_enable:i.read.valid

@@ -115,17 +115,22 @@ struct
       [@@deriving hardcaml]
     end
 
-    let create _scope (i : _ I.t) =
-      (* TODO:  Warning, the hash function for the AXI4 cache is pretty bad (Fn.id) *)
-      let sel = mux2 i.requests.selected_write_ch.valid in
-      (* For now, lets just do write priority since our only writers are DMA and the core which needs to read in between. *)
-      { O.read_ready = ~:(i.downstream_locked) &: ~:(i.requests.selected_write_ch.valid)
-      ; write_ready = ~:(i.downstream_locked)
+    let create scope (i : _ I.t) =
+      let%hw valid =
+        ~:(i.downstream_locked)
+        &: (i.requests.selected_write_ch.valid |: i.requests.selected_read_ch.valid)
+      in
+      let%hw last_was_write = wire 1 in
+      let%hw want_to_write = i.requests.selected_write_ch.valid in
+      let%hw want_to_read = i.requests.selected_read_ch.valid in
+      let%hw selected_write = want_to_write &: (~:want_to_read |: ~:last_was_write) in
+      last_was_write <-- Clocking.reg ~enable:valid i.clock selected_write;
+      let sel = mux2 selected_write in
+      { O.read_ready = ~:(i.downstream_locked) &: ~:selected_write
+      ; write_ready = ~:(i.downstream_locked) &: selected_write
       ; selected =
-          { valid =
-              ~:(i.downstream_locked)
-              &: (i.requests.selected_write_ch.valid |: i.requests.selected_read_ch.valid)
-          ; is_write = i.requests.selected_write_ch.valid
+          { valid
+          ; is_write = selected_write
           ; address =
               sel
                 i.requests.selected_write_ch.data.address
@@ -182,9 +187,13 @@ struct
 
     let create scope (i : _ I.t) =
       (* a one hot encoded cell mask of the cell we want to access. *)
+        let%hw cell_wise_strb =
+          binary_to_onehot
+            (sel_bottom ~width:(address_bits_for line_width) i.selected.address)
+        in
       let%hw selected_strb =
-        binary_to_onehot
-          (sel_bottom ~width:(address_bits_for line_width) i.selected.address)
+        (* TODO: Think harder about this, if we write one byte out and then request 4 bytes we always need to read from cache which sucks in write then read the same memory scenarios. *)
+        bits_lsb cell_wise_strb |> List.map ~f:(repeat ~count:cell_bytes) |> concat_lsb
       in
       let%hw locked_reg = wire 1 in
       let%hw incoming = i.selected.valid in
@@ -196,7 +205,10 @@ struct
       let%hw incoming_read_is_hit =
         i.ram_read.meta.valid
         &: (i.ram_read.meta.address ==: cell_to_cache_address i.selected.address)
-        &: (selected_strb &: i.ram_read.meta.strb <>:. 0)
+        &: (popcount (selected_strb &: i.ram_read.meta.strb)
+            ==:. cell_bytes
+                 (* TODO: I think we can do this better, counting that the whole cell is in cache on a read. *)
+           )
       in
       let%hw need_to_flush_line =
         let%hw flush_because_evict_on_read =
@@ -289,7 +301,7 @@ struct
         ; datas =
             List.mapi
               ~f:(fun which_cell existing_data ->
-                mux2 selected_strb.:(which_cell) i.selected.write_data existing_data)
+                mux2 cell_wise_strb.:(which_cell) i.selected.write_data existing_data)
               i.ram_read.read_data
         ; wstrb =
             (* On a hit we just rewrite a DW, on a miss we zero the rest of
@@ -362,10 +374,7 @@ struct
           }
       ; write_request =
           { Memory_requester.Write.Request.valid = issuing_write_request
-          ; wstrb =
-              bits_lsb i.ram_read.meta.strb
-              |> List.map ~f:(repeat ~count:(cell_width / 8))
-              |> concat_lsb
+          ; wstrb = i.ram_read.meta.strb
           ; address =
               sel_bottom
                 ~width:axi_address_width
@@ -472,6 +481,8 @@ struct
   end
 
   let create ~build_mode scope ({ clock; requests; dn } : _ I.t) =
+    (* TODO:  Warning, the hash function for the AXI4 cache is pretty bad (Fn.id) *)
+    (* Register based round robin *)
     let downstream_locked = wire 1 in
     let arb = Arb.hierarchical scope { Arb.I.clock; requests; downstream_locked } in
     let write = Ram.Write.Of_signal.wires () in

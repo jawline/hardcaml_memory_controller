@@ -8,7 +8,7 @@ let debug = false
 let verbose = false
 let cell_width = 32
 let cell_bytes = 32 / 8
-let read_channels = 4
+let read_channels = 7
 let write_channels = 5
 let capacity_in_bytes = 1024
 
@@ -115,7 +115,7 @@ let read ~address ~ch sim =
   let rec wait_for_ready timeout =
     ch_tx.valid := vdd;
     ch_tx.data.address := of_unsigned_int ~width:(Axi_config.addr_bits - 2) address;
-    inputs.requests.which_read_ch := of_unsigned_int ~width:2 ch;
+    inputs.requests.which_read_ch := of_unsigned_int ~width:3 ch;
     Cyclesim.cycle sim;
     if timeout = 0 then raise_s [%message "BUG: Timeout"];
     if to_bool !(outputs.read_ready)

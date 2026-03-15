@@ -5,7 +5,7 @@ open Hardcaml_memory_controller
 open! Bits
 
 let debug = true
-let capacity_in_bytes = 1024
+let capacity_in_bytes = 65536
 
 module Make_tests (C : sig
     val num_channels : int
@@ -49,7 +49,7 @@ struct
             Some
               (module struct
                 let line_width = 8
-                let num_cache_lines = 4
+                let num_cache_lines = 128
                 let num_read_channels = C.num_channels
                 let num_write_channels = C.num_channels
               end : Axi4_cache.Config)
@@ -76,7 +76,7 @@ struct
       let ctrl =
         Memory_controller.hierarchical
           ~build_mode:Simulation
-          ~priority_mode:Priority_order
+          ~priority_mode:Round_robin
           scope
           { i with memory = ram.memory }
       in
@@ -90,7 +90,8 @@ struct
     ;;
   end
 
-  module Harness = Cyclesim_harness.Make (Machine.I) (Machine.O)
+  module Harness = Step_harness.Functional.Make_effectful (Machine.I) (Machine.O)
+  module Step = Harness.Step
 
   let create_sim f =
     Harness.run
@@ -99,96 +100,191 @@ struct
       f
   ;;
 
-  let rec wait_for_write_ack ~timeout ~ch sim =
+  let rec wait_for_write_ack ~timeout ~ch h =
     if timeout = 0 then raise_s [%message "BUG: Timeout writing ack"];
-    let outputs : _ Memory_controller.O.t = Cyclesim.outputs ~clock_edge:Before sim in
-    let ch_rx = List.nth_exn outputs.write_response ch in
-    Cyclesim.cycle sim;
-    if to_bool !(ch_rx.valid)
-    then ()
-    else wait_for_write_ack ~timeout:(timeout - 1) ~ch sim
+    let o =
+      Step.cycle
+        h
+        { Step.input_hold with
+          write_to_controller =
+            List.mapi
+              ~f:(fun i v -> if i = ch then { v with valid = gnd } else v)
+              Step.input_hold.write_to_controller
+        }
+    in
+    let ch_rx = List.nth_exn o.before_edge.write_response ch in
+    if to_bool ch_rx.valid then () else wait_for_write_ack ~timeout:(timeout - 1) ~ch h
   ;;
 
-  let rec write ~timeout ~address ~value ~ch sim =
-    if timeout = 0 then raise_s [%message "BUG: Timeout writing"];
-    let inputs : _ Memory_controller.I.t = Cyclesim.inputs sim in
-    let ch_tx = List.nth_exn inputs.write_to_controller ch in
-    ch_tx.valid := vdd;
-    ch_tx.data.address := of_unsigned_int ~width:addr_bits address;
-    ch_tx.data.write_data := of_unsigned_int ~width:32 value;
-    ch_tx.data.wstrb := ones 4;
-    let outputs : _ Memory_controller.O.t = Cyclesim.outputs ~clock_edge:Before sim in
-    let ch_rx = List.nth_exn outputs.write_to_controller ch in
-    Cyclesim.cycle sim;
-    if to_bool !(ch_rx.ready)
+  let rec write ~shared_mem ~timeout ~address ~value ~ch h =
+    if timeout = 0 then raise_s [%message "BUG: Timeout writing" (ch : int)];
+    let o =
+      Step.cycle
+        h
+        { Step.input_hold with
+          write_to_controller =
+            List.mapi
+              ~f:(fun i v ->
+                if i = ch
+                then
+                  { Memory_controller.Memory_bus.Write_bus.Source.valid = vdd
+                  ; data =
+                      { address = of_unsigned_int ~width:addr_bits address
+                      ; write_data = of_unsigned_int ~width:32 value
+                      ; wstrb = ones 4
+                      }
+                  }
+                else v)
+              Step.input_hold.write_to_controller
+        }
+    in
+    let ch_tx = List.nth_exn o.before_edge.write_to_controller ch in
+    let ch_rx = List.nth_exn o.before_edge.write_response ch in
+    if to_bool ch_tx.ready
     then (
-      List.iteri
-        ~f:(fun i rx ->
-          if i <> ch
-          then (
-            if to_bool !(rx.ready)
-            then
-              print_s [%message "BUG: We only expect one channel to have a ready signal."];
-            ())
-          else ())
-        outputs.write_to_controller;
-      ch_tx.valid := gnd;
-      wait_for_write_ack ~timeout:10000 ~ch sim)
-    else write ~timeout:(timeout - 1) ~address ~value ~ch sim
+      let () =
+        if to_bool ch_rx.valid
+        then (
+          let _o =
+            Step.cycle
+              h
+              { Step.input_hold with
+                write_to_controller =
+                  List.mapi
+                    ~f:(fun i v -> if i = ch then { v with valid = gnd } else v)
+                    Step.input_hold.write_to_controller
+              }
+          in
+          ())
+        else wait_for_write_ack ~timeout:10000 ~ch h
+      in
+      Array.set shared_mem address value;
+      ())
+    else write ~shared_mem ~timeout:(timeout - 1) ~address ~value ~ch h
   ;;
 
-  let read ~address ~ch sim =
-    Cyclesim.cycle sim;
-    let inputs : _ Memory_controller.I.t = Cyclesim.inputs sim in
-    let outputs : _ Memory_controller.O.t = Cyclesim.outputs ~clock_edge:Before sim in
-    let ch_rx = List.nth_exn outputs.read_response ch in
-    let ch_rx_ack = List.nth_exn outputs.read_to_controller ch in
-    let ch_tx = List.nth_exn inputs.read_to_controller ch in
+  let read_and_assert ~shared_mem ~address ~ch h =
+    let cached = ref 0 in
     let rec wait_for_ready timeout =
-      ch_tx.valid := vdd;
-      ch_tx.data.address := of_unsigned_int ~width:addr_bits address;
-      Cyclesim.cycle sim;
-      if timeout = 0 then raise_s [%message "BUG: Timeout"];
-      if to_bool !(ch_rx_ack.ready)
-      then (
-        ch_tx.valid := gnd;
-        ())
-      else wait_for_ready (timeout - 1)
+      let o =
+        Step.cycle
+          h
+          { Step.input_hold with
+            read_to_controller =
+              List.mapi
+                ~f:(fun i v ->
+                  if i = ch
+                  then
+                    { Memory_controller.Memory_bus.Read_bus.Source.valid = vdd
+                    ; data = { address = of_unsigned_int ~width:addr_bits address }
+                    }
+                  else v)
+                Step.input_hold.read_to_controller
+          }
+      in
+      cached := Array.get shared_mem address;
+      let ch_tx = List.nth_exn o.before_edge.read_to_controller ch in
+      if timeout = 0 then raise_s [%message "BUG: Timeout (Read)"];
+      if to_bool ch_tx.ready then () else wait_for_ready (timeout - 1)
     in
     let rec wait_for_data timeout =
-      if timeout = 0 then raise_s [%message "BUG: Timeout"];
-      Cyclesim.cycle sim;
-      if to_bool !(ch_rx.valid)
-      then to_int_trunc !(ch_rx.value.read_data)
+      if timeout = 0 then raise_s [%message "BUG: Timeout (Read)"];
+      let o =
+        Step.cycle
+          h
+          { Step.input_hold with
+            read_to_controller =
+              List.mapi
+                ~f:(fun i v -> if i = ch then { v with valid = gnd } else v)
+                Step.input_hold.read_to_controller
+          }
+      in
+      let ch_rx = List.nth_exn o.before_edge.read_response ch in
+      if to_bool ch_rx.valid
+      then to_int_trunc ch_rx.value.read_data
       else wait_for_data (timeout - 1)
     in
-    wait_for_ready 100;
-    wait_for_data 100
+    wait_for_ready 2000;
+    let v = wait_for_data 2000 in
+    if v <> !cached
+    then
+      raise_s
+        [%message "BUG: Expected" (address : int) (!cached : int) "received" (v : int)];
+    ()
   ;;
 
-  let read_and_assert ~address ~value ~ch sim =
-    let result = read ~address ~ch sim in
-    if result <> value
-    then print_s [%message "BUG: Expected" (result : int) "received" (value : int)]
-  ;;
-
-  let%expect_test "read/write" =
-    create_sim (fun ~inputs ~outputs:_ sim ->
-      inputs.clock.clear := vdd;
-      Cyclesim.cycle sim;
-      inputs.clock.clear := gnd;
-      let random = Splittable_random.of_int 1 in
-      Sequence.range 0 1000
-      |> Sequence.iter ~f:(fun _ ->
-        let next =
-          Splittable_random.int ~lo:Int.min_value ~hi:Int.max_value random land 0xFFFFFFFF
-        in
-        let ch = Splittable_random.int ~lo:0 ~hi:(C.num_channels - 1) random in
+  let read_thread ~random ~ch ~num_ops ~shared_mem h =
+    let rec loop i =
+      if i = 0
+      then ()
+      else (
+        let backpressure = Splittable_random.int ~lo:0 ~hi:(C.num_channels * 3) random in
         let address =
           Splittable_random.int ~lo:0 ~hi:((capacity_in_bytes / data_bytes) - 1) random
         in
-        write ~timeout:100 ~address ~value:next ~ch sim;
-        read_and_assert ~address ~value:next ~ch sim));
+        if backpressure = 0
+        then (
+          read_and_assert ~shared_mem ~address ~ch h;
+          loop (i - 1))
+        else (
+          let _o = Step.cycle h Step.input_hold in
+          loop i))
+    in
+    loop num_ops
+  ;;
+
+  let write_thread ~random ~ch ~num_ops ~shared_mem h =
+    let rec loop i =
+      if i = 0
+      then ()
+      else (
+        let backpressure = Splittable_random.int ~lo:0 ~hi:(C.num_channels * 3) random in
+        let address =
+          Splittable_random.int ~lo:0 ~hi:((capacity_in_bytes / data_bytes) - 1) random
+        in
+        let value = Splittable_random.int ~lo:0 ~hi:0xDEADBEEF random in
+        if backpressure = 0
+        then (
+          write ~timeout:2000 ~shared_mem ~address ~value ~ch h;
+          loop (i - 1))
+        else (
+          let _o = Step.cycle h Step.input_hold in
+          loop i))
+    in
+    loop num_ops
+  ;;
+
+  let%expect_test "read/write" =
+    create_sim (fun h ->
+      let _clear =
+        Step.cycle
+          h
+          { Step.input_zero with clock = { Step.input_zero.clock with clear = vdd } }
+      in
+      let _clear =
+        Step.cycle
+          h
+          { Step.input_zero with clock = { Step.input_zero.clock with clear = gnd } }
+      in
+      let shared_mem = Array.create ~len:(capacity_in_bytes / 4) 0 in
+      let random = Splittable_random.of_int 1 in
+      let write_threads =
+        List.init
+          ~f:(fun i ->
+            Step.spawn h (fun h _o ->
+              write_thread ~random ~ch:i ~num_ops:1000 ~shared_mem h))
+          C.num_channels
+      in
+      let read_threads =
+        List.init
+          ~f:(fun i ->
+            Step.spawn h (fun h _o ->
+              read_thread ~random ~ch:i ~num_ops:1000 ~shared_mem h))
+          C.num_channels
+      in
+      List.iter ~f:(fun t -> Step.wait_for h t) read_threads;
+      List.iter ~f:(fun t -> Step.wait_for h t) write_threads;
+      ());
     [%expect
       {|
       (* CR expect_test: Test ran multiple times with different test outputs *)
