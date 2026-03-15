@@ -291,7 +291,7 @@ struct
         ; datas = split_lsb ~part_width:cell_width i.read_response.data
         ; real_wstrb = memory_write_back_strobe
         ; meta_wstrb = ones (width memory_write_back_strobe)
-        ; dirty = ~:(all_bits_set memory_write_back_strobe) 
+        ; dirty = ~:(all_bits_set memory_write_back_strobe)
         }
       in
       let%hw.Ram.Write.Of_signal incoming_write_back =
@@ -334,6 +334,15 @@ struct
       let%hw which_read_data_cell =
         sel_bottom ~width:(address_bits_for line_width) byte_response_address
       in
+      (* TODO: We could lock the RAM to the same location instead. *)
+      let byte_enable_data ~strb t =
+        let bytes_ = split_lsb ~part_width:8 t in
+
+        List.zip_exn bytes_ (bits_lsb strb) |> List.map ~f:(fun (byte_, strb) -> byte_ &: repeat ~count:8 strb) |> concat_lsb
+      in
+      let%hw cached_read_data =
+        Clocking.reg ~enable:issuing_read_request i.clock (concat_lsb i.ram_read.read_data)
+      in
       { O.locked =
           (* We lock for this cycle if it's a write so we can write back to the
              cache (otherwise Read_before_write might lead to incoherent data).
@@ -348,11 +357,19 @@ struct
                   { With_valid.valid = read_done &: (read_channel ==:. ch)
                   ; value =
                       { Read_response.read_data =
-                          (let%hw read_parts =
+                          (let%hw reconstituted_read_data =
+                             byte_enable_data
+                               ~strb:memory_write_back_strobe
+                               i.read_response.data
+                             |: byte_enable_data
+                                  ~strb:~:memory_write_back_strobe
+                                  cached_read_data
+                           in
+                           let%hw read_parts =
                              mux2
                                incoming
                                (concat_lsb i.ram_read.read_data)
-                               i.read_response.data
+                               reconstituted_read_data
                            in
                            mux
                              which_read_data_cell

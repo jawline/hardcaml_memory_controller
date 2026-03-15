@@ -224,8 +224,8 @@ let%expect_test "loopback" =
     {|
     ("Config width" (Axi_config.addr_bits 10))
     ("stats sim"
-     ((incoming 40000) (incoming_write 20000) (incoming_need_to_write_back 17612)
-      (incoming_hit 6305)))
+     ((incoming 40000) (incoming_write 20000) (incoming_need_to_write_back 17294)
+      (incoming_hit 6407)))
     Finished
     |}]
 ;;
