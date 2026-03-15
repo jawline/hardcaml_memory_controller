@@ -214,6 +214,7 @@ struct
       let%hw need_to_flush_line =
         let%hw flush_because_evict_on_read =
           incoming
+          &: ~:incoming_is_correct_line
           &: ~:incoming_is_write
           &: ~:incoming_read_is_hit
           &: i.ram_read.meta.valid
@@ -289,8 +290,8 @@ struct
         ; address = byte_to_cell_address i.read_response.address |> cell_to_cache_address
         ; datas = split_lsb ~part_width:cell_width i.read_response.data
         ; real_wstrb = memory_write_back_strobe
-        ; meta_wstrb = memory_write_back_strobe
-        ; dirty = gnd (* Fresh from ram *)
+        ; meta_wstrb = ones (width memory_write_back_strobe)
+        ; dirty = ~:(all_bits_set memory_write_back_strobe) 
         }
       in
       let%hw.Ram.Write.Of_signal incoming_write_back =
