@@ -337,11 +337,15 @@ struct
       (* TODO: We could lock the RAM to the same location instead. *)
       let byte_enable_data ~strb t =
         let bytes_ = split_lsb ~part_width:8 t in
-
-        List.zip_exn bytes_ (bits_lsb strb) |> List.map ~f:(fun (byte_, strb) -> byte_ &: repeat ~count:8 strb) |> concat_lsb
+        List.zip_exn bytes_ (bits_lsb strb)
+        |> List.map ~f:(fun (byte_, strb) -> byte_ &: repeat ~count:8 strb)
+        |> concat_lsb
       in
       let%hw cached_read_data =
-        Clocking.reg ~enable:issuing_read_request i.clock (concat_lsb i.ram_read.read_data)
+        Clocking.reg
+          ~enable:issuing_read_request
+          i.clock
+          (concat_lsb i.ram_read.read_data)
       in
       { O.locked =
           (* We lock for this cycle if it's a write so we can write back to the
