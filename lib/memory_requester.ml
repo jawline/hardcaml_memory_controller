@@ -176,7 +176,7 @@ struct
           i.request
       in
       let%hw finishing_this_cycle =
-        locked &: i.axi.rvalid |: (i.request.valid &: i.axi.rvalid)
+        locked &: i.axi.rvalid
       in
       locked
       <-- Clocking.reg_fb
@@ -188,7 +188,7 @@ struct
         Clocking.reg_fb
           ~width:1
           ~f:(fun t ->
-            let%hw read_request_start = i.request.valid &: i.axi.awready in
+            let%hw read_request_start = i.request.valid &: i.axi.arready in
             let%hw read_req_in_process = locked &: i.axi.arready in
             mux2 finishing_this_cycle gnd (t |: read_request_start |: read_req_in_process))
           i.clock
