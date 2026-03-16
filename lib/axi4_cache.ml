@@ -90,6 +90,7 @@ struct
       { valid : 'a
       ; is_write : 'a
       ; address : 'a [@bits cell_address_width]
+      ; cache_cell_one_hot : 'a [@bits address_bits_for line_width]
       ; write_data : 'a [@bits Write.port_widths.write_data]
       ; strb : 'a [@bits cell_bytes]
       ; id : 'a [@bits id_bits]
@@ -125,23 +126,28 @@ struct
       let%hw want_to_write = i.requests.selected_write_ch.valid in
       let%hw want_to_read = i.requests.selected_read_ch.valid in
       let%hw selected_write = want_to_write &: (~:want_to_read |: ~:last_was_write) in
-      last_was_write <-- Clocking.reg ~enable:valid i.clock selected_write;
       let sel = mux2 selected_write in
+      let%hw address =
+        sel
+          i.requests.selected_write_ch.data.address
+          i.requests.selected_read_ch.data.address
+      in
+      last_was_write <-- Clocking.reg ~enable:valid i.clock selected_write;
       { O.read_ready = ~:(i.downstream_locked) &: ~:selected_write
       ; write_ready = ~:(i.downstream_locked) &: selected_write
       ; selected =
           { valid
           ; is_write = selected_write
-          ; address =
-              sel
-                i.requests.selected_write_ch.data.address
-                i.requests.selected_read_ch.data.address
+          ; address
           ; write_data = i.requests.selected_write_ch.data.write_data
           ; strb = sel i.requests.selected_write_ch.data.wstrb (ones (cell_width / 8))
           ; id =
               sel
                 (uextend ~width:id_bits i.requests.which_write_ch)
                 (uextend ~width:id_bits i.requests.which_read_ch)
+          ; cache_cell_one_hot =
+              (* a one hot encoded cell mask of the cell we want to access. *)
+              binary_to_onehot (sel_bottom ~width:(address_bits_for line_width) address)
           }
       }
     ;;
@@ -190,14 +196,9 @@ struct
     end
 
     let create scope (i : _ I.t) =
-      (* a one hot encoded cell mask of the cell we want to access. *)
-      let%hw cell_wise_strb =
-        binary_to_onehot
-          (sel_bottom ~width:(address_bits_for line_width) i.selected.address)
-      in
       let%hw selected_strb =
         (* TODO: Think harder about this, if we write one byte out and then request 4 bytes we always need to read from cache which sucks in write then read the same memory scenarios. *)
-        bits_lsb cell_wise_strb
+        bits_lsb i.selected.cache_cell_one_hot
         |> List.map ~f:(fun valid -> repeat ~count:cell_bytes valid &: i.selected.strb)
         |> concat_lsb
       in
@@ -265,22 +266,19 @@ struct
           i.clock
       in
       let%hw all_memory_operations_done =
-        awaiting_read
-        |: awaiting_write
-        &: (concat_lsb
-              [ awaiting_read &: ~:(i.read_response.finished)
-              ; awaiting_write &: ~:(i.write_response.finished)
-              ]
-            ==:. 0)
+        let%hw read_done = ~:awaiting_read |: i.read_response.finished in
+        let%hw write_done = ~:awaiting_write |: i.write_response.finished in
+        let%hw waiting_for_anything = awaiting_read |: awaiting_write in
+        waiting_for_anything &: (read_done &: write_done)
       in
       let%hw mem_read_done = i.read_response.finished in
       locked_reg
       <-- Clocking.reg_fb
             ~width:1
             ~f:(fun t ->
-              let%hw lock_this_cycle =
-                issuing_write_request &: ~:acked_write_request |: issuing_read_request
-              in
+              let%hw lock_on_write = issuing_write_request &: ~:acked_write_request in
+              let%hw lock_on_read = issuing_read_request in
+              let%hw lock_this_cycle = lock_on_read |: lock_on_write in
               mux2 lock_this_cycle vdd (mux2 all_memory_operations_done gnd t))
             i.clock;
       let%hw.Ram.Write.Of_signal mem_op_write_back =
@@ -307,7 +305,7 @@ struct
         ; datas =
             List.mapi
               ~f:(fun which_cell existing_data ->
-                mux2 cell_wise_strb.:(which_cell) i.selected.write_data existing_data)
+                mux2 i.selected.cache_cell_one_hot.:(which_cell) i.selected.write_data existing_data)
               i.ram_read.read_data
         ; real_wstrb = selected_strb (* Only actually write the bytes we see to RAM. *)
         ; meta_wstrb =
