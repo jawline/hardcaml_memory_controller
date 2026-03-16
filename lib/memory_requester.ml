@@ -66,8 +66,13 @@ struct
           i.request
       in
       let%hw address_transferred = wire 1 in
+      let%hw data_transferred = wire 1 in
       let%hw finishing_this_cycle =
-        let%hw finishing_in_progress = locked &: (address_transferred |: i.axi.awready) &: i.axi.wready in
+        let%hw finishing_in_progress =
+          locked
+          &: (address_transferred |: i.axi.awready)
+          &: (data_transferred |: i.axi.wready)
+        in
         let%hw finishing_pulse =
           ~:locked &: (i.request.valid &: i.axi.awready &: i.axi.wready)
         in
@@ -90,12 +95,23 @@ struct
                 gnd
                 (t |: write_request_start |: write_req_in_process))
             i.clock;
+      data_transferred
+      <-- Clocking.reg_fb
+            ~width:1
+            ~f:(fun t ->
+              let%hw write_request_start = i.request.valid &: i.axi.wready in
+              let%hw write_req_in_process = locked &: i.axi.wready in
+              mux2
+                finishing_this_cycle
+                gnd
+                (t |: write_request_start |: write_req_in_process))
+            i.clock;
       { O.finished = finishing_this_cycle
       ; address = o_req.address
       ; id = o_req.id
       ; axi =
           { Axi.O.awvalid = locked &: ~:address_transferred |: i.request.valid
-          ; wvalid = locked |: i.request.valid
+          ; wvalid = locked &: data_transferred |: i.request.valid
           ; awaddr = o_req.address
           ; awburst = of_unsigned_int ~width:2 0b01 (* INCR *)
           ; awid =
