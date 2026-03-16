@@ -273,7 +273,7 @@ struct
               (t |: (issuing_write_request &: ~:acked_write_request)))
           i.clock
       in
-            let%hw mem_read_done = i.read_response.finished in
+      let%hw mem_read_done = i.read_response.finished in
       let%hw.Ram.Write.Of_signal mem_op_write_back =
         { Ram.Write.valid = mem_read_done
         ; cell_valid = vdd
@@ -349,7 +349,7 @@ struct
              cache (otherwise Read_before_write might lead to incoherent data).
              *)
         (* TODO: This permits an op only every other cycle but without it we end up with very tight timings. Needs pipelining. *)
-        incoming |: ((awaiting_read) |: (awaiting_write)) 
+        incoming |: (awaiting_read |: awaiting_write)
         (* 
         incoming &: (~:incoming_read_is_hit |: incoming_is_write) |: locked_reg *)
       in
