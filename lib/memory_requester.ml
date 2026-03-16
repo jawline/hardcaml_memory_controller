@@ -175,9 +175,7 @@ struct
           (Clocking.to_spec_no_clear i.clock)
           i.request
       in
-      let%hw finishing_this_cycle =
-        locked &: i.axi.rvalid
-      in
+      let%hw finishing_this_cycle = locked &: i.axi.rvalid in
       locked
       <-- Clocking.reg_fb
             ~width:1
