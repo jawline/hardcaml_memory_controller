@@ -110,14 +110,15 @@ struct
       ; address = o_req.address
       ; id = o_req.id
       ; axi =
+          (* Note that downstream controllers may ack data before addresses (wready vs awready). *)
           { Axi.O.awvalid = locked &: ~:address_transferred |: i.request.valid
-          ; wvalid = locked &: data_transferred |: i.request.valid
+          ; wvalid = locked &: ~:data_transferred |: i.request.valid
           ; awaddr = o_req.address
           ; awburst = of_unsigned_int ~width:2 0b01 (* INCR *)
           ; awid =
               zero Axi.O.port_widths.arid
               (* TODO: Maybe we should give the cache an ID in case it is on an interconnect? *)
-          ; awlen = of_unsigned_int ~width:Axi.O.port_widths.awlen 1
+          ; awlen = of_unsigned_int ~width:Axi.O.port_widths.awlen 0 (* beats - 1 *)
           ; awsize =
               of_unsigned_int
                 ~width:Axi.O.port_widths.awsize
