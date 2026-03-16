@@ -211,7 +211,6 @@ struct
         (* TODO: Think harder about this, if we write one byte out and then request 4 bytes we always need to read from cache which sucks in write then read the same memory scenarios. *)
         i.selected.line_strb
       in
-      let%hw locked_reg = wire 1 in
       let%hw incoming = i.selected.valid in
       let%hw incoming_is_write = i.selected.is_write in
       let%hw incoming_is_correct_line =
@@ -281,15 +280,6 @@ struct
         waiting_for_anything &: (read_done &: write_done)
       in
       let%hw mem_read_done = i.read_response.finished in
-      locked_reg
-      <-- Clocking.reg_fb
-            ~width:1
-            ~f:(fun t ->
-              let%hw lock_on_write = issuing_write_request &: ~:acked_write_request in
-              let%hw lock_on_read = issuing_read_request in
-              let%hw lock_this_cycle = lock_on_read |: lock_on_write in
-              mux2 lock_this_cycle vdd (mux2 all_memory_operations_done gnd t))
-            i.clock;
       let%hw.Ram.Write.Of_signal mem_op_write_back =
         { Ram.Write.valid = mem_read_done
         ; cell_valid = vdd
@@ -364,7 +354,10 @@ struct
         (* We lock for this cycle if it's a write so we can write back to the
              cache (otherwise Read_before_write might lead to incoherent data).
              *)
-        incoming &: (~:incoming_read_is_hit |: incoming_is_write) |: locked_reg
+        (* TODO: This permits an op only every other cycle but without it we end up with very tight timings. Needs pipelining. *)
+        incoming |: (awaiting_read |: awaiting_write)
+        (* 
+        incoming &: (~:incoming_read_is_hit |: incoming_is_write) |: locked_reg *)
       in
       { O.locked = unit_locked
       ; ram_write =
