@@ -90,7 +90,7 @@ struct
       { valid : 'a
       ; is_write : 'a
       ; address : 'a [@bits cell_address_width]
-      ; cache_cell_one_hot : 'a [@bits address_bits_for line_width]
+      ; cache_cell_one_hot : 'a [@bits line_width]
       ; write_data : 'a [@bits Write.port_widths.write_data]
       ; strb : 'a [@bits cell_bytes]
       ; id : 'a [@bits id_bits]
