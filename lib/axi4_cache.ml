@@ -92,7 +92,7 @@ struct
       ; address : 'a [@bits cell_address_width]
       ; cache_cell_one_hot : 'a [@bits line_width]
       ; write_data : 'a [@bits Write.port_widths.write_data]
-      ; strb : 'a [@bits cell_bytes]
+      ; line_strb : 'a [@bits cell_bytes * line_width]
       ; id : 'a [@bits id_bits]
       }
     [@@deriving hardcaml]
@@ -132,6 +132,19 @@ struct
           i.requests.selected_write_ch.data.address
           i.requests.selected_read_ch.data.address
       in
+      let%hw word_strb =
+        sel i.requests.selected_write_ch.data.wstrb (ones (cell_width / 8))
+      in
+      let%hw cache_cell_one_hot =
+        (* a one hot encoded cell mask of the cell we want to access. *)
+        binary_to_onehot (sel_bottom ~width:(address_bits_for line_width) address)
+      in
+      let%hw line_strb =
+        (* TODO: Think harder about this, if we write one byte out and then request 4 bytes we always need to read from cache which sucks in write then read the same memory scenarios. *)
+        bits_lsb cache_cell_one_hot
+        |> List.map ~f:(fun valid -> repeat ~count:cell_bytes valid &: word_strb)
+        |> concat_lsb
+      in
       last_was_write <-- Clocking.reg ~enable:valid i.clock selected_write;
       { O.read_ready = ~:(i.downstream_locked) &: ~:selected_write
       ; write_ready = ~:(i.downstream_locked) &: selected_write
@@ -140,14 +153,12 @@ struct
           ; is_write = selected_write
           ; address
           ; write_data = i.requests.selected_write_ch.data.write_data
-          ; strb = sel i.requests.selected_write_ch.data.wstrb (ones (cell_width / 8))
+          ; line_strb
           ; id =
               sel
                 (uextend ~width:id_bits i.requests.which_write_ch)
                 (uextend ~width:id_bits i.requests.which_read_ch)
-          ; cache_cell_one_hot =
-              (* a one hot encoded cell mask of the cell we want to access. *)
-              binary_to_onehot (sel_bottom ~width:(address_bits_for line_width) address)
+          ; cache_cell_one_hot
           }
       }
     ;;
@@ -198,9 +209,7 @@ struct
     let create scope (i : _ I.t) =
       let%hw selected_strb =
         (* TODO: Think harder about this, if we write one byte out and then request 4 bytes we always need to read from cache which sucks in write then read the same memory scenarios. *)
-        bits_lsb i.selected.cache_cell_one_hot
-        |> List.map ~f:(fun valid -> repeat ~count:cell_bytes valid &: i.selected.strb)
-        |> concat_lsb
+        i.selected.line_strb
       in
       let%hw locked_reg = wire 1 in
       let%hw incoming = i.selected.valid in
@@ -305,7 +314,10 @@ struct
         ; datas =
             List.mapi
               ~f:(fun which_cell existing_data ->
-                mux2 i.selected.cache_cell_one_hot.:(which_cell) i.selected.write_data existing_data)
+                mux2
+                  i.selected.cache_cell_one_hot.:(which_cell)
+                  i.selected.write_data
+                  existing_data)
               i.ram_read.read_data
         ; real_wstrb = selected_strb (* Only actually write the bytes we see to RAM. *)
         ; meta_wstrb =
