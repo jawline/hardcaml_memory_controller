@@ -184,7 +184,37 @@ let%expect_test "manufactured miss" =
     ("Config width" (Axi_config.addr_bits 10))
     ("stats sim"
      ((incoming 12) (incoming_write 6) (incoming_need_to_write_back 2)
-      (incoming_hit 4)))
+      (incoming_hit 4) (total_cycles 108) (locked_cycles 78)))
+    |}]
+;;
+
+let%expect_test "burst of linear writes" =
+  print_s [%message "Config width" (Axi_config.addr_bits : int)];
+  create_sim (fun ~inputs ~outputs:_ sim ->
+    inputs.clock.clear := vdd;
+    Cyclesim.cycle sim;
+    inputs.clock.clear := gnd;
+    (* Write the entire ram a few times. *)
+    Sequence.range 0 8
+    |> Sequence.iter ~f:(fun _round ->
+      Sequence.range 0 (capacity_in_bytes / cell_bytes)
+      |> Sequence.iter ~f:(fun cell ->
+        write ~timeout:1000 ~address:cell ~value:cell ~ch:0 sim));
+    (* Write different values to the ram *)
+    Sequence.range 0 (capacity_in_bytes / cell_bytes)
+    |> Sequence.iter ~f:(fun cell ->
+      write ~timeout:1000 ~address:cell ~value:(cell + 1) ~ch:0 sim);
+    (* Finally check the values we just wrote are correct. *)
+    Sequence.range 0 (capacity_in_bytes / cell_bytes)
+    |> Sequence.iter ~f:(fun cell ->
+      read_and_assert ~address:cell ~value:(cell + 1) ~ch:0 sim);
+    print_s [%message (stats sim : int Axi4_cache.Request_stage.Statistics.t)]);
+  [%expect
+    {|
+    ("Config width" (Axi_config.addr_bits 10))
+    ("stats sim"
+     ((incoming 2560) (incoming_write 2304) (incoming_need_to_write_back 288)
+      (incoming_hit 224) (total_cycles 6417) (locked_cycles 3368)))
     |}]
 ;;
 
@@ -225,7 +255,7 @@ let%expect_test "loopback" =
     ("Config width" (Axi_config.addr_bits 10))
     ("stats sim"
      ((incoming 40000) (incoming_write 20000) (incoming_need_to_write_back 17294)
-      (incoming_hit 6407)))
+      (incoming_hit 6407) (total_cycles 634060) (locked_cycles 572277)))
     Finished
     |}]
 ;;

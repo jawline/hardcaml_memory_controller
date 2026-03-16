@@ -160,6 +160,8 @@ struct
         ; incoming_write : 'a [@bits 32]
         ; incoming_need_to_write_back : 'a [@bits 32]
         ; incoming_hit : 'a [@bits 32]
+        ; total_cycles : 'a [@bits 32]
+        ; locked_cycles : 'a [@bits 32]
         }
       [@@deriving hardcaml]
     end
@@ -276,9 +278,10 @@ struct
       <-- Clocking.reg_fb
             ~width:1
             ~f:(fun t ->
-              t
-              |: (issuing_write_request &: ~:acked_write_request |: issuing_read_request)
-              &: ~:all_memory_operations_done)
+              let%hw lock_this_cycle =
+                issuing_write_request &: ~:acked_write_request |: issuing_read_request
+              in
+              mux2 lock_this_cycle vdd (mux2 all_memory_operations_done gnd t))
             i.clock;
       let%hw.Ram.Write.Of_signal mem_op_write_back =
         { Ram.Write.valid = mem_read_done
@@ -347,11 +350,13 @@ struct
           i.clock
           (concat_lsb i.ram_read.read_data)
       in
-      { O.locked =
-          (* We lock for this cycle if it's a write so we can write back to the
+      let%hw unit_locked =
+        (* We lock for this cycle if it's a write so we can write back to the
              cache (otherwise Read_before_write might lead to incoherent data).
              *)
-          incoming &: (~:incoming_read_is_hit |: incoming_is_write) |: locked_reg
+        incoming &: (~:incoming_read_is_hit |: incoming_is_write) |: locked_reg
+      in
+      { O.locked = unit_locked
       ; ram_write =
           Ram.Write.Of_signal.mux2 mem_read_done mem_op_write_back incoming_write_back
       ; memory_responses =
@@ -430,6 +435,14 @@ struct
               Clocking.reg_fb
                 ~width:Statistics.port_widths.incoming
                 ~enable:(incoming &: incoming_read_is_hit)
+                ~f:incr
+                i.clock
+          ; total_cycles =
+              Clocking.reg_fb ~width:Statistics.port_widths.total_cycles ~f:incr i.clock
+          ; locked_cycles =
+              Clocking.reg_fb
+                ~width:Statistics.port_widths.locked_cycles
+                ~enable:unit_locked
                 ~f:incr
                 i.clock
           }
