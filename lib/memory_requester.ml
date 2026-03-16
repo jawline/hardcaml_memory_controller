@@ -230,7 +230,7 @@ struct
           ; arid =
               zero Axi.O.port_widths.arid
               (* TODO: Maybe we should give the cache an ID in case it is on an interconnect? *)
-          ; arlen = of_unsigned_int ~width:Axi.O.port_widths.awlen 1
+          ; arlen = of_unsigned_int ~width:Axi.O.port_widths.awlen 0
           ; arsize =
               of_unsigned_int
                 ~width:Axi.O.port_widths.awsize
