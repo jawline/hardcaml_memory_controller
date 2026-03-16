@@ -67,7 +67,7 @@ struct
       in
       let%hw address_transferred = wire 1 in
       let%hw finishing_this_cycle =
-        let%hw finishing_in_progress = locked &: address_transferred &: i.axi.wready in
+        let%hw finishing_in_progress = locked &: (address_transferred |: i.axi.awready) &: i.axi.wready in
         let%hw finishing_pulse =
           ~:locked &: (i.request.valid &: i.axi.awready &: i.axi.wready)
         in
