@@ -141,11 +141,11 @@ let%expect_test "read/write" =
         (axi
          ((awaddr 0) (awburst 0) (awid 0) (awlen 0) (awsize 0) (awvalid 0)
           (wlast 0) (wvalid 0) (wdata 0) (wstrb 0) (araddr 0) (arburst 1)
-          (arid 0) (arlen 1) (arsize 5) (arvalid 0) (bready 0) (rready 1)))))
+          (arid 0) (arlen 0) (arsize 5) (arvalid 0) (bready 0) (rready 1)))))
       (write
        ((finished 0) (address 32) (id 0)
         (axi
-         ((awaddr 32) (awburst 1) (awid 0) (awlen 1) (awsize 5) (awvalid 0)
+         ((awaddr 32) (awburst 1) (awid 0) (awlen 0) (awsize 5) (awvalid 0)
           (wlast 1) (wvalid 0) (wdata 1234567) (wstrb 65535) (araddr 0)
           (arburst 0) (arid 0) (arlen 0) (arsize 0) (arvalid 0) (bready 1)
           (rready 0)))))))
@@ -155,11 +155,11 @@ let%expect_test "read/write" =
         (axi
          ((awaddr 0) (awburst 0) (awid 0) (awlen 0) (awsize 0) (awvalid 0)
           (wlast 0) (wvalid 0) (wdata 0) (wstrb 0) (araddr 16) (arburst 1)
-          (arid 0) (arlen 1) (arsize 5) (arvalid 0) (bready 0) (rready 1)))))
+          (arid 0) (arlen 0) (arsize 5) (arvalid 0) (bready 0) (rready 1)))))
       (write
        ((finished 0) (address 32) (id 0)
         (axi
-         ((awaddr 32) (awburst 1) (awid 0) (awlen 1) (awsize 5) (awvalid 0)
+         ((awaddr 32) (awburst 1) (awid 0) (awlen 0) (awsize 5) (awvalid 0)
           (wlast 1) (wvalid 0) (wdata 1234567) (wstrb 65535) (araddr 0)
           (arburst 0) (arid 0) (arlen 0) (arsize 0) (arvalid 0) (bready 1)
           (rready 0)))))))
@@ -169,11 +169,11 @@ let%expect_test "read/write" =
         (axi
          ((awaddr 0) (awburst 0) (awid 0) (awlen 0) (awsize 0) (awvalid 0)
           (wlast 0) (wvalid 0) (wdata 0) (wstrb 0) (araddr 32) (arburst 1)
-          (arid 0) (arlen 1) (arsize 5) (arvalid 0) (bready 0) (rready 1)))))
+          (arid 0) (arlen 0) (arsize 5) (arvalid 0) (bready 0) (rready 1)))))
       (write
        ((finished 0) (address 32) (id 0)
         (axi
-         ((awaddr 32) (awburst 1) (awid 0) (awlen 1) (awsize 5) (awvalid 0)
+         ((awaddr 32) (awburst 1) (awid 0) (awlen 0) (awsize 5) (awvalid 0)
           (wlast 1) (wvalid 0) (wdata 1234567) (wstrb 65535) (araddr 0)
           (arburst 0) (arid 0) (arlen 0) (arsize 0) (arvalid 0) (bready 1)
           (rready 0)))))))
