@@ -4,7 +4,7 @@ open Hardcaml_test_harness
 open Hardcaml_memory_controller
 open! Bits
 
-let debug = false
+let debug = true
 let verbose = false
 let cell_width = 32
 let cell_bytes = 32 / 8
@@ -36,6 +36,8 @@ module Bus_config = struct
   let address_width = Axi_config.addr_bits - 2 (* DW addressed *)
   let data_bus_width = 32
   let line_width = 8
+  let register_responses = true
+  let register_axi_requests = true
 
   let num_cache_lines =
     8 (* Eviction is hard to force in a test with lots of cache lines *)
@@ -117,7 +119,7 @@ let read ~address ~ch sim =
     ch_tx.data.address := of_unsigned_int ~width:(Axi_config.addr_bits - 2) address;
     inputs.requests.which_read_ch := of_unsigned_int ~width:3 ch;
     Cyclesim.cycle sim;
-    if timeout = 0 then raise_s [%message "BUG: Timeout"];
+    if timeout = 0 then raise_s [%message "BUG: Timeout reading (wait addr ack)"];
     if to_bool !(outputs.read_ready)
     then (
       ch_tx.valid := gnd;
@@ -125,7 +127,7 @@ let read ~address ~ch sim =
     else wait_for_ready (timeout - 1)
   in
   let rec wait_for_data timeout =
-    if timeout = 0 then raise_s [%message "BUG: Timeout"];
+    if timeout = 0 then raise_s [%message "BUG: Timeout (wait data)"];
     Cyclesim.cycle sim;
     if to_bool !(ch_rx.valid)
     then to_int_trunc !(ch_rx.value.read_data)
@@ -184,7 +186,8 @@ let%expect_test "manufactured miss" =
     ("Config width" (Axi_config.addr_bits 10))
     ("stats sim"
      ((incoming 12) (incoming_write 6) (incoming_need_to_write_back 2)
-      (incoming_hit 4) (total_cycles 104) (locked_cycles 78)))
+      (incoming_hit 4) (total_cycles 117) (locked_cycles 80)))
+    Saved waves to /var/home/blake/waves//_manufactured_miss.hardcamlwaveform
     |}]
 ;;
 
@@ -214,7 +217,8 @@ let%expect_test "burst of linear writes" =
     ("Config width" (Axi_config.addr_bits 10))
     ("stats sim"
      ((incoming 2560) (incoming_write 2304) (incoming_need_to_write_back 288)
-      (incoming_hit 224) (total_cycles 6413) (locked_cycles 3588)))
+      (incoming_hit 224) (total_cycles 8973) (locked_cycles 3868)))
+    Saved waves to /var/home/blake/waves//_burst_of_linear_writes.hardcamlwaveform
     |}]
 ;;
 
@@ -255,7 +259,8 @@ let%expect_test "loopback" =
     ("Config width" (Axi_config.addr_bits 10))
     ("stats sim"
      ((incoming 40000) (incoming_write 20000) (incoming_need_to_write_back 17294)
-      (incoming_hit 6407) (total_cycles 629124) (locked_cycles 570349)))
+      (incoming_hit 6407) (total_cycles 703213) (locked_cycles 619458)))
+    Saved waves to /var/home/blake/waves//_loopback.hardcamlwaveform
     Finished
     |}]
 ;;
