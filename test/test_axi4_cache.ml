@@ -187,7 +187,6 @@ let%expect_test "manufactured miss" =
     ("stats sim"
      ((incoming 12) (incoming_write 6) (incoming_need_to_write_back 2)
       (incoming_hit 4) (total_cycles 117) (locked_cycles 80)))
-    Saved waves to /var/home/blake/waves//_manufactured_miss.hardcamlwaveform
     |}]
 ;;
 
@@ -218,7 +217,6 @@ let%expect_test "burst of linear writes" =
     ("stats sim"
      ((incoming 2560) (incoming_write 2304) (incoming_need_to_write_back 288)
       (incoming_hit 224) (total_cycles 8973) (locked_cycles 3868)))
-    Saved waves to /var/home/blake/waves//_burst_of_linear_writes.hardcamlwaveform
     |}]
 ;;
 
@@ -260,7 +258,6 @@ let%expect_test "loopback" =
     ("stats sim"
      ((incoming 40000) (incoming_write 20000) (incoming_need_to_write_back 17294)
       (incoming_hit 6407) (total_cycles 703213) (locked_cycles 619458)))
-    Saved waves to /var/home/blake/waves//_loopback.hardcamlwaveform
     Finished
     |}]
 ;;

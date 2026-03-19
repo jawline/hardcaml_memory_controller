@@ -15,17 +15,7 @@ struct
 
   let byte_address_width = Axi.O.port_widths.awaddr
   let data_bytes = data_bits / 8
-
-  let () =
-    if data_bits <> Axi.I.port_widths.rdata
-    then
-      raise_s
-        [%message
-          "TODO: For now we only support single AXI beat bursts."
-            (data_bits : int)
-            (Axi.I.port_widths.rdata : int)]
-  ;;
-
+  let axi_bytes = Axi.O.port_widths.wdata / 8
   let axi_to_bus_ratio = Config.data_bits / Axi.I.port_widths.rdata
 
   module Write = struct
@@ -125,14 +115,15 @@ struct
           ; awid =
               zero Axi.O.port_widths.arid
               (* TODO: Maybe we should give the cache an ID in case it is on an interconnect? *)
-          ; awlen = of_unsigned_int ~width:Axi.O.port_widths.awlen 0 (* beats - 1 *)
+          ; awlen = of_unsigned_int ~width:Axi.O.port_widths.awlen (axi_to_bus_ratio - 1)
           ; awsize =
               of_unsigned_int
                 ~width:Axi.O.port_widths.awsize
-                (num_bits_to_represent data_bytes)
-          ; wlast = vdd
-          ; wdata = o_req.write_data
-          ; wstrb = o_req.wstrb
+                (num_bits_to_represent axi_bytes)
+          ; wlast = beat_counter ==:. axi_to_bus_ratio - 1
+          ; wdata =
+              mux beat_counter (split_lsb ~part_width:(axi_bytes * 8) o_req.write_data)
+          ; wstrb = mux beat_counter (split_lsb ~part_width:axi_bytes o_req.wstrb)
           ; bready = vdd (* Unconditionally ack writes *)
           ; arvalid = gnd
           ; araddr = zero Axi.O.port_widths.araddr
@@ -193,13 +184,16 @@ struct
 
     let create scope (i : _ I.t) =
       let%hw locked = wire 1 in
+      let%hw beat_counter = wire (address_bits_for axi_to_bus_ratio) in
       let%hw.Request.Of_signal request_reg =
         Request.Of_signal.reg
           ~enable:i.request.valid
           (Clocking.to_spec_no_clear i.clock)
           i.request
       in
-      let%hw finishing_this_cycle = locked &: i.axi.rvalid in
+      let%hw finishing_this_cycle =
+        locked &: i.axi.rvalid &: (beat_counter ==:. axi_to_bus_ratio - 1)
+      in
       locked
       <-- Clocking.reg_fb
             ~width:1
@@ -215,10 +209,25 @@ struct
             mux2 finishing_this_cycle gnd (t |: read_request_start |: read_req_in_process))
           i.clock
       in
+      beat_counter
+      <-- Clocking.reg_fb
+            ~width:(address_bits_for axi_to_bus_ratio)
+            ~f:(fun t ->
+              mux2 finishing_this_cycle (zero (width t)) (mux2 i.axi.rvalid (incr t) t))
+            i.clock;
+      let read_parts =
+        List.init
+          ~f:(fun part ->
+            Clocking.reg
+              ~enable:(i.axi.rvalid &: (beat_counter ==:. part))
+              i.clock
+              i.axi.rdata)
+          (axi_to_bus_ratio - 1)
+      in
       { O.finished = finishing_this_cycle
       ; address = o_req.address
       ; id = o_req.id
-      ; data = i.axi.rdata
+      ; data = concat_lsb (List.concat [ read_parts; [ i.axi.rdata ] ])
       ; axi =
           { Axi.O.awvalid = gnd
           ; wvalid = gnd
@@ -237,11 +246,11 @@ struct
           ; arid =
               zero Axi.O.port_widths.arid
               (* TODO: Maybe we should give the cache an ID in case it is on an interconnect? *)
-          ; arlen = of_unsigned_int ~width:Axi.O.port_widths.awlen 0 (* beats - 1 *)
+          ; arlen = of_unsigned_int ~width:Axi.O.port_widths.awlen (axi_to_bus_ratio - 1)
           ; arsize =
               of_unsigned_int
                 ~width:Axi.O.port_widths.awsize
-                (num_bits_to_represent data_bytes)
+                (num_bits_to_represent axi_bytes)
           ; rready = vdd (* We can always receive a read response *)
           }
       }
