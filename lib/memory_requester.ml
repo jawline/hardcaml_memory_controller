@@ -91,7 +91,7 @@ struct
             i.clock;
       beat_counter
       <-- Clocking.reg_fb
-            ~width:(address_bits_for axi_to_bus_ratio)
+            ~width:(num_bits_to_represent axi_to_bus_ratio)
             ~f:(fun t ->
               let%hw write_request_start = i.request.valid &: i.axi.wready in
               let%hw write_req_in_process = locked &: i.axi.wready in
