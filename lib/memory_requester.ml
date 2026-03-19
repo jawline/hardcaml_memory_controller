@@ -26,6 +26,8 @@ struct
             (Axi.I.port_widths.rdata : int)]
   ;;
 
+  let axi_to_bus_ratio = Config.data_bits / Axi.I.port_widths.rdata
+
   module Write = struct
     module Request = struct
       type 'a t =
@@ -66,12 +68,14 @@ struct
           i.request
       in
       let%hw address_transferred = wire 1 in
-      let%hw data_transferred = wire 1 in
+      (* TODO: Using only a counter is probably not optimal vs also precomputing a finished reg. *)
+      let%hw beat_counter = wire (num_bits_to_represent axi_to_bus_ratio) in
+      let%hw data_transferred = beat_counter ==:. axi_to_bus_ratio in
       let%hw finishing_this_cycle =
         let%hw finishing_in_progress =
           locked
           &: (address_transferred |: i.axi.awready)
-          &: (data_transferred |: i.axi.wready)
+          &: (Unsigned.(beat_counter +: i.axi.wready) ==:. axi_to_bus_ratio)
         in
         let%hw finishing_pulse =
           ~:locked &: (i.request.valid &: i.axi.awready &: i.axi.wready)
@@ -95,16 +99,19 @@ struct
                 gnd
                 (t |: write_request_start |: write_req_in_process))
             i.clock;
-      data_transferred
+      beat_counter
       <-- Clocking.reg_fb
-            ~width:1
+            ~width:(address_bits_for axi_to_bus_ratio)
             ~f:(fun t ->
               let%hw write_request_start = i.request.valid &: i.axi.wready in
               let%hw write_req_in_process = locked &: i.axi.wready in
               mux2
                 finishing_this_cycle
-                gnd
-                (t |: write_request_start |: write_req_in_process))
+                (zero (width t))
+                (mux2
+                   write_request_start
+                   (one (width t))
+                   (mux2 write_req_in_process (incr t) t)))
             i.clock;
       { O.finished = finishing_this_cycle
       ; address = o_req.address
