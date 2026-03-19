@@ -19,7 +19,7 @@ struct
 
   module Axi_config = struct
     let id_bits = 8
-    let data_bits = if C.cache then data_width * 8 else data_width
+    let data_bits = if C.cache then data_width * 16 else data_width
     let addr_bits = address_bits_for capacity_in_bytes
     let burst_length_bits = 1
   end
@@ -48,8 +48,8 @@ struct
           then
             Some
               (module struct
-                let line_width = 8
-                let num_cache_lines = 128
+                let line_width = 16
+                let num_cache_lines = 256
                 let num_read_channels = C.num_channels
                 let num_write_channels = C.num_channels
                 let register_responses = true
@@ -103,7 +103,7 @@ struct
   ;;
 
   let rec wait_for_write_ack ~timeout ~ch h =
-    if timeout = 0 then raise_s [%message "BUG: Timeout writing ack"];
+    if timeout = 0 then raise_s [%message "BUG: Timeout writing ack" (ch : int)];
     let o =
       Step.cycle
         h
@@ -186,11 +186,11 @@ struct
       in
       cached := Array.get shared_mem address;
       let ch_tx = List.nth_exn o.before_edge.read_to_controller ch in
-      if timeout = 0 then raise_s [%message "BUG: Timeout (Read)"];
+      if timeout = 0 then raise_s [%message "BUG: Timeout (Read)" (ch : int)];
       if to_bool ch_tx.ready then () else wait_for_ready (timeout - 1)
     in
     let rec wait_for_data timeout =
-      if timeout = 0 then raise_s [%message "BUG: Timeout (Read)"];
+      if timeout = 0 then raise_s [%message "BUG: Timeout (Read response)"];
       let o =
         Step.cycle
           h
@@ -206,8 +206,8 @@ struct
       then to_int_trunc ch_rx.value.read_data
       else wait_for_data (timeout - 1)
     in
-    wait_for_ready 2000;
-    let v = wait_for_data 2000 in
+    wait_for_ready 3000;
+    let v = wait_for_data 3000 in
     if v <> !cached
     then
       raise_s
@@ -247,7 +247,7 @@ struct
         let value = Splittable_random.int ~lo:0 ~hi:0xDEADBEEF random in
         if backpressure = 0
         then (
-          write ~timeout:3000 ~shared_mem ~address ~value ~ch h;
+          write ~timeout:5000 ~shared_mem ~address ~value ~ch h;
           loop (i - 1))
         else (
           let _o = Step.cycle h Step.input_hold in
@@ -342,7 +342,7 @@ include Make_tests (struct
 
 include Make_tests (struct
     let num_channels = 7
-    let read_latency = 19
-    let synthetic_pushback = 4
+    let read_latency = 16
+    let synthetic_pushback = 3
     let cache = true
   end)

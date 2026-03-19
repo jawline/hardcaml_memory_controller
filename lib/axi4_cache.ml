@@ -215,6 +215,27 @@ struct
     end
 
     let create scope (i : _ I.t) =
+            (* If we're registering requests also register the responses. This can help with fanout from the finished signal which is pretty troublesome on smaller boards. *)
+      let read_response =
+        if Config.register_axi_requests
+        then
+          { (Memory_requester.Read.O.Of_signal.reg
+               (Clocking.to_spec_no_clear i.clock)
+               i.read_response)
+            with
+            finished = Clocking.reg i.clock i.read_response.finished
+          } else i.read_response
+      in
+      let write_response =
+        if Config.register_responses
+        then
+          { (Memory_requester.Write.O.Of_signal.reg
+               (Clocking.to_spec_no_clear i.clock)
+               i.write_response)
+            with
+            finished = Clocking.reg i.clock i.write_response.finished
+          } else i.write_response
+      in
       let%hw selected_strb =
         (* TODO: Think harder about this, if we write one byte out and then request 4 bytes we always need to read from cache which sucks in write then read the same memory scenarios. *)
         i.selected.line_strb
@@ -259,7 +280,7 @@ struct
         Clocking.reg
           ~enable:issuing_read_request
           (* Clear on finished otherwise successor reads will use the read data strobe. *)
-          (Clocking.add_clear i.clock i.read_response.finished)
+          (Clocking.add_clear i.clock read_response.finished)
           (mux2
              (incoming &: incoming_is_correct_line)
              ~:(i.ram_read.meta.strb)
@@ -267,27 +288,27 @@ struct
       in
       let%hw awaiting_read =
         Clocking.reg
-          ~clear:i.read_response.finished
+          ~clear:read_response.finished
           ~enable:issuing_read_request
           i.clock
           vdd
       in
       let%hw awaiting_write =
         Clocking.reg
-          ~enable:(issuing_write_request &: ~:(i.write_response.finished))
-          ~clear:i.write_response.finished
+          ~enable:(issuing_write_request &: ~:(write_response.finished))
+          ~clear:write_response.finished
           i.clock
           vdd
       in
       let%hw.Ram.Write.Of_signal mem_op_write_back =
-        { Ram.Write.valid = i.read_response.finished
+        { Ram.Write.valid = read_response.finished
         ; cell_valid = vdd
         ; cache_address =
-            byte_to_cell_address i.read_response.address
+            byte_to_cell_address read_response.address
             |> cell_to_cache_address
             |> cache_address_to_hashed_line_address
-        ; address = byte_to_cell_address i.read_response.address |> cell_to_cache_address
-        ; datas = split_lsb ~part_width:cell_width i.read_response.data
+        ; address = byte_to_cell_address read_response.address |> cell_to_cache_address
+        ; datas = split_lsb ~part_width:cell_width read_response.data
         ; real_wstrb = memory_write_back_strobe
         ; meta_wstrb = ones (width memory_write_back_strobe)
         ; dirty = ~:(all_bits_set memory_write_back_strobe)
@@ -324,19 +345,16 @@ struct
         }
       in
       let%hw read_done =
-        incoming
-        &: incoming_read_is_hit
-        &: ~:incoming_is_write
-        |: i.read_response.finished
+        incoming &: incoming_read_is_hit &: ~:incoming_is_write |: read_response.finished
       in
       let%hw read_channel =
-        mux2 (incoming &: incoming_read_is_hit) i.selected.id i.read_response.id
+        mux2 (incoming &: incoming_read_is_hit) i.selected.id read_response.id
       in
       let%hw write_channel = i.selected.id in
       (* We can pre ack the write even if it's a cache miss as the controller will lock while it flushes the line. *)
       let%hw write_done = incoming &: incoming_is_write in
       let%hw byte_response_address =
-        mux2 incoming i.selected.address (byte_to_cell_address i.read_response.address)
+        mux2 incoming i.selected.address (byte_to_cell_address read_response.address)
       in
       let%hw which_read_data_cell =
         sel_bottom ~width:(address_bits_for line_width) byte_response_address
@@ -349,10 +367,18 @@ struct
         |> concat_lsb
       in
       let%hw cached_read_data =
-        Clocking.reg
-          ~enable:issuing_read_request
-          i.clock
-          (concat_lsb i.ram_read.read_data)
+        (* By pipelining this a single cycle we can avoid fanout of the CE on the issuing write request signal.*)
+        if Config.register_axi_requests
+        then
+          Clocking.reg
+            ~enable:(Clocking.reg i.clock issuing_read_request)
+            i.clock
+            (reg (Clocking.to_spec_no_clear i.clock) (concat_lsb i.ram_read.read_data))
+        else
+          Clocking.reg
+            ~enable:issuing_read_request
+            i.clock
+            (concat_lsb i.ram_read.read_data)
       in
       let%hw unit_locked =
         (* We lock for this cycle if it's a write so we can write back to the
@@ -366,14 +392,14 @@ struct
       { O.locked = unit_locked
       ; ram_write =
           Ram.Write.Of_signal.mux2
-            i.read_response.finished
+            read_response.finished
             mem_op_write_back
             incoming_write_back
       ; memory_responses =
           { read_response =
               (let%hw read_data =
                  let%hw reconstituted_read_data =
-                   byte_enable_data ~strb:memory_write_back_strobe i.read_response.data
+                   byte_enable_data ~strb:memory_write_back_strobe read_response.data
                    |: byte_enable_data ~strb:~:memory_write_back_strobe cached_read_data
                  in
                  let%hw read_parts =
