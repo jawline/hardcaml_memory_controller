@@ -172,16 +172,6 @@ struct
       [@@deriving hardcaml]
     end
 
-    let () =
-      if data_bits <> Axi.I.port_widths.rdata
-      then
-        raise_s
-          [%message
-            "TODO: For now we only support single AXI beat bursts."
-              (data_bits : int)
-              (Axi.I.port_widths.rdata : int)]
-    ;;
-
     let create scope (i : _ I.t) =
       let%hw locked = wire 1 in
       let%hw beat_counter = wire (address_bits_for axi_to_bus_ratio) in
