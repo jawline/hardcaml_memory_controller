@@ -215,7 +215,7 @@ struct
     end
 
     let create scope (i : _ I.t) =
-            (* If we're registering requests also register the responses. This can help with fanout from the finished signal which is pretty troublesome on smaller boards. *)
+      (* If we're registering requests also register the responses. This can help with fanout from the finished signal which is pretty troublesome on smaller boards. *)
       let read_response =
         if Config.register_axi_requests
         then
@@ -224,7 +224,8 @@ struct
                i.read_response)
             with
             finished = Clocking.reg i.clock i.read_response.finished
-          } else i.read_response
+          }
+        else i.read_response
       in
       let write_response =
         if Config.register_responses
@@ -234,7 +235,8 @@ struct
                i.write_response)
             with
             finished = Clocking.reg i.clock i.write_response.finished
-          } else i.write_response
+          }
+        else i.write_response
       in
       let%hw selected_strb =
         (* TODO: Think harder about this, if we write one byte out and then request 4 bytes we always need to read from cache which sucks in write then read the same memory scenarios. *)
@@ -357,7 +359,10 @@ struct
         mux2 incoming i.selected.address (byte_to_cell_address read_response.address)
       in
       let%hw which_read_data_cell =
-        sel_bottom ~width:(address_bits_for line_width) byte_response_address
+        cut_through_reg
+          ~enable:i.selected.valid
+          (Clocking.to_spec_no_clear i.clock)
+          (sel_bottom ~width:(address_bits_for line_width) byte_response_address)
       in
       (* TODO: We could lock the RAM to the same location instead. *)
       let byte_enable_data ~strb t =
@@ -442,7 +447,8 @@ struct
            ; address =
                sel_bottom
                  ~width:axi_address_width
-                 (cell_address_to_bytes i.selected.address)
+                 (cell_to_cache_address i.selected.address
+                  |> cache_address_to_byte_address)
            ; id = i.selected.id
            }
            |>
