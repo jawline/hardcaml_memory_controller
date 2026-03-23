@@ -212,7 +212,8 @@ let%expect_test "burst of linear writes" =
     |> Sequence.iter ~f:(fun cell ->
       read_and_assert ~address:cell ~value:(cell + 1) ~ch:0 sim);
     print_s [%message (stats sim : int Axi4_cache.Request_stage.Statistics.t)]);
-  [%expect {|
+  [%expect
+    {|
     ("Config width" (Axi_config.addr_bits 16))
     ("stats sim"
      ((incoming 163840) (incoming_write 147456)
@@ -254,7 +255,8 @@ let%expect_test "loopback" =
         sim);
     print_s [%message (stats sim : int Axi4_cache.Request_stage.Statistics.t)]);
   print_s [%message "Finished"];
-  [%expect {|
+  [%expect
+    {|
     ("Config width" (Axi_config.addr_bits 16))
     ("stats sim"
      ((incoming 40000) (incoming_write 20000) (incoming_need_to_write_back 19385)
