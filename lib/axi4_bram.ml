@@ -41,7 +41,46 @@ struct
     [@@deriving hardcaml ~rtlmangle:"$"]
   end
 
-  let create ~build_mode ~read_latency scope ({ clock; memory } : _ I.t) =
+  let cell_bits = address_bits_for data_width_bytes
+  let address_bits = address_bits_for capacity_in_words
+
+  let lock_read ~ready scope (i : _ I.t) =
+    let reg_spec = Clocking.to_spec i.clock in
+    let reg_spec_no_clear = Clocking.to_spec i.clock in
+    let%hw read_locked = wire 1 in
+    let%hw read_ctr = wire 8 in
+    let%hw accepting_new_transfer = i.memory.arvalid &: ready &: ~:read_locked in
+    let%hw incoming_address =
+      drop_bottom ~width:cell_bits i.memory.araddr |> sel_bottom ~width:address_bits
+    in
+    read_locked
+    <-- reg_fb
+          ~width:1
+          ~f:(fun t ->
+            mux2
+              (accepting_new_transfer &: (i.memory.arlen <>:. 0))
+              vdd
+              (mux2 (read_ctr ==:. 1) gnd t))
+          reg_spec;
+    let%hw read_address_reg =
+      reg_fb
+        ~width:address_bits
+        ~f:(fun t -> mux2 accepting_new_transfer (incr incoming_address) (incr t))
+        reg_spec_no_clear
+    in
+    read_ctr
+    <-- reg_fb
+          ~width:8
+          ~f:(fun t ->
+            mux2 accepting_new_transfer (uresize ~width:8 i.memory.arlen) (t -:. 1))
+          reg_spec_no_clear;
+    ( read_locked |: accepting_new_transfer
+    , cut_through_reg ~enable:accepting_new_transfer reg_spec_no_clear i.memory.arid
+    , mux2 read_locked read_address_reg incoming_address
+    , ready &: ~:read_locked )
+  ;;
+
+  let create ~build_mode ~read_latency scope ({ clock; memory } as i : _ I.t) =
     let reg_spec = Clocking.to_spec clock in
     (* Synthetic pushback mechanism for testing. Raises ready only once in M.synthetic_pushback cycles. *)
     let%hw should_push_back =
@@ -54,11 +93,19 @@ struct
         <>:. 0
       else gnd
     in
-    let%hw read_address =
-      drop_bottom ~width:(address_bits_for data_width_bytes) memory.araddr
+    let write_address = drop_bottom ~width:cell_bits memory.awaddr in
+    let%hw write_ctr =
+      reg_fb
+        ~width:8
+        ~enable:(memory.wvalid &: ~:should_push_back)
+        ~f:(fun t -> mux2 memory.wlast (zero (width t)) (incr t))
+        reg_spec
     in
     let%hw write_address =
-      drop_bottom ~width:(address_bits_for data_width_bytes) memory.awaddr
+      write_address +: uresize ~width:(width write_address) write_ctr
+    in
+    let%hw read_valid, read_id, read_address, read_ready =
+      lock_read ~ready:~:should_push_back (Scope.sub_scope scope "lock_read") i
     in
     let%hw read_address_in_range =
       if Int.pow 2 (width read_address) <= capacity_in_words
@@ -69,6 +116,12 @@ struct
       if Int.pow 2 (width write_address) <= capacity_in_words
       then vdd
       else write_address <:. capacity_in_words
+    in
+    let%hw write_enable =
+      repeat
+        ~count:(width memory.wstrb)
+        (memory.awvalid &: memory.wvalid &: write_address_in_range &: ~:should_push_back)
+      &: memory.wstrb
     in
     let%hw read_data =
       Simple_dual_port_ram.create
@@ -81,25 +134,20 @@ struct
         ~build_mode
         ~clock:clock.clock
         ~clear:clock.clear
-        ~write_enable:
-          (repeat
-             ~count:(width memory.wstrb)
-             (memory.awvalid &: write_address_in_range &: ~:should_push_back)
-           &: memory.wstrb)
+        ~write_enable
         ~write_address
         ~data:memory.wdata
-        ~read_enable:memory.arvalid
+        ~read_enable:read_valid
         ~read_address
         ~read_latency
         ()
     in
-    let%hw address_ready_and_not_push_back = memory.arvalid &: ~:should_push_back in
     { O.memory =
         { Axi.I.bvalid = reg reg_spec (memory.awvalid &: ~:should_push_back)
         ; bid = reg reg_spec memory.awid
         ; bresp = zero 2
-        ; rvalid = pipeline ~n:read_latency reg_spec address_ready_and_not_push_back
-        ; rid = pipeline ~n:read_latency reg_spec memory.arid
+        ; rvalid = pipeline ~n:read_latency reg_spec read_valid
+        ; rid = pipeline ~n:read_latency reg_spec read_id
         ; rdata =
             pipeline
               ~n:read_latency
@@ -108,8 +156,8 @@ struct
             &: read_data
         ; rresp = zero 2
         ; wready = ~:should_push_back
-        ; awready = ~:should_push_back
-        ; arready = ~:should_push_back
+        ; awready = ~:should_push_back &: i.memory.wlast
+        ; arready = read_ready
         ; rlast = vdd
         }
     }
