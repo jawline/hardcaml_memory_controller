@@ -77,6 +77,7 @@ module Harness = Cyclesim_harness.Make (Machine.I) (Machine.O)
 
 let create_sim f =
   Harness.run
+    ~random_initial_state:`All
     ~waves_config:(Waves_config.to_home_subdirectory_when debug)
     ~create:Machine.hierarchical
     f
@@ -211,14 +212,17 @@ let%expect_test "burst of linear writes" =
     Sequence.range 0 (capacity_in_bytes / cell_bytes)
     |> Sequence.iter ~f:(fun cell ->
       read_and_assert ~address:cell ~value:(cell + 1) ~ch:0 sim);
+    Sequence.range ~stop:`inclusive ~stride:(-1) ((capacity_in_bytes / cell_bytes) - 1) 0
+    |> Sequence.iter ~f:(fun cell ->
+      read_and_assert ~address:cell ~value:(cell + 1) ~ch:0 sim);
     print_s [%message (stats sim : int Axi4_cache.Request_stage.Statistics.t)]);
   [%expect
     {|
     ("Config width" (Axi_config.addr_bits 16))
     ("stats sim"
-     ((incoming 163840) (incoming_write 147456)
-      (incoming_need_to_write_back 9216) (incoming_hit 15360)
-      (total_cycles 691265) (locked_cycles 356288)))
+     ((incoming 180224) (incoming_write 147456)
+      (incoming_need_to_write_back 9216) (incoming_hit 30784)
+      (total_cycles 791361) (locked_cycles 407232)))
     Saved waves to /var/home/blake/waves//_burst_of_linear_writes.hardcamlwaveform
     |}]
 ;;
@@ -226,12 +230,15 @@ let%expect_test "burst of linear writes" =
 let%expect_test "loopback" =
   print_s [%message "Config width" (Axi_config.addr_bits : int)];
   let oracle_ram = Array.init ~f:(fun _ -> 0) (capacity_in_bytes / cell_bytes) in
+  let oracle_ram_known =
+    Array.init ~f:(fun _ -> false) (capacity_in_bytes / cell_bytes)
+  in
   create_sim (fun ~inputs ~outputs:_ sim ->
     inputs.clock.clear := vdd;
     Cyclesim.cycle sim;
     inputs.clock.clear := gnd;
     let random = Splittable_random.of_int 1 in
-    Sequence.range 0 20000
+    Sequence.range 0 40000
     |> Sequence.iter ~f:(fun _ ->
       let next_write =
         Splittable_random.int ~lo:Int.min_value ~hi:Int.max_value random land 0xFFFFFFFF
@@ -246,21 +253,25 @@ let%expect_test "loopback" =
       in
       if verbose then print_s [%message "Write" (address_write : int) (next_write : int)];
       write ~timeout:1000 ~address:address_write ~value:next_write ~ch:write_ch sim;
+      Array.set oracle_ram_known address_write true;
       Array.set oracle_ram address_write next_write;
       if verbose then print_s [%message "Read" (address_read : int)];
-      read_and_assert
-        ~address:address_read
-        ~value:(Array.get oracle_ram address_read)
-        ~ch:read_ch
-        sim);
+      if Array.get oracle_ram_known address_read
+      then
+        read_and_assert
+          ~address:address_read
+          ~value:(Array.get oracle_ram address_read)
+          ~ch:read_ch
+          sim
+      else ());
     print_s [%message (stats sim : int Axi4_cache.Request_stage.Statistics.t)]);
   print_s [%message "Finished"];
   [%expect
     {|
     ("Config width" (Axi_config.addr_bits 16))
     ("stats sim"
-     ((incoming 40000) (incoming_write 20000) (incoming_need_to_write_back 19385)
-      (incoming_hit 1386) (total_cycles 970369) (locked_cycles 889422)))
+     ((incoming 65044) (incoming_write 40000) (incoming_need_to_write_back 38375)
+      (incoming_hit 1860) (total_cycles 1422813) (locked_cycles 1305980)))
     Saved waves to /var/home/blake/waves//_loopback.hardcamlwaveform
     Finished
     |}]

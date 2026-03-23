@@ -290,16 +290,14 @@ struct
       in
       let%hw awaiting_read =
         Clocking.reg
-          ~clear:read_response.finished
           ~enable:issuing_read_request
-          i.clock
+          (Clocking.add_clear i.clock read_response.finished)
           vdd
       in
       let%hw awaiting_write =
         Clocking.reg
           ~enable:(issuing_write_request &: ~:(write_response.finished))
-          ~clear:write_response.finished
-          i.clock
+          (Clocking.add_clear i.clock write_response.finished)
           vdd
       in
       let%hw.Ram.Write.Of_signal mem_op_write_back =

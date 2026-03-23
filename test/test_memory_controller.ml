@@ -19,9 +19,9 @@ struct
 
   module Axi_config = struct
     let id_bits = 8
-    let data_bits = if C.cache then data_width * 16 else data_width
+    let data_bits = if C.cache then data_width * 4 else data_width
     let addr_bits = address_bits_for capacity_in_bytes
-    let burst_length_bits = 1
+    let burst_length_bits = 2
   end
 
   module Axi4 = Axi4.Make (Axi_config)

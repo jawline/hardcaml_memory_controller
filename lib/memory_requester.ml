@@ -202,8 +202,8 @@ struct
       beat_counter
       <-- Clocking.reg_fb
             ~width:(address_bits_for axi_to_bus_ratio)
-            ~f:(fun t ->
-              mux2 finishing_this_cycle (zero (width t)) (mux2 i.axi.rvalid (incr t) t))
+            ~enable:i.axi.rvalid
+            ~f:(fun t -> mux2 finishing_this_cycle (zero (width t)) (incr t))
             i.clock;
       let read_parts =
         List.init
