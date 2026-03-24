@@ -68,7 +68,7 @@ struct
           &: (Unsigned.(beat_counter +: i.axi.wready) ==:. axi_to_bus_ratio)
         in
         let%hw finishing_pulse =
-                (* At single beat bus ratios we might do a burst in a single beat. *)
+          (* At single beat bus ratios we might do a burst in a single beat. *)
           if axi_to_bus_ratio = 1
           then ~:locked &: (i.request.valid &: i.axi.awready &: i.axi.wready)
           else gnd
