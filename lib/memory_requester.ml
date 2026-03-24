@@ -68,7 +68,10 @@ struct
           &: (Unsigned.(beat_counter +: i.axi.wready) ==:. axi_to_bus_ratio)
         in
         let%hw finishing_pulse =
-          ~:locked &: (i.request.valid &: i.axi.awready &: i.axi.wready)
+                (* At single beat bus ratios we might do a burst in a single beat. *)
+          if axi_to_bus_ratio = 1
+          then ~:locked &: (i.request.valid &: i.axi.awready &: i.axi.wready)
+          else gnd
         in
         finishing_in_progress |: finishing_pulse
       in
@@ -93,15 +96,10 @@ struct
       <-- Clocking.reg_fb
             ~width:(num_bits_to_represent axi_to_bus_ratio)
             ~f:(fun t ->
-              let%hw write_request_start = i.request.valid &: i.axi.wready in
-              let%hw write_req_in_process = locked &: i.axi.wready in
               mux2
                 finishing_this_cycle
                 (zero (width t))
-                (mux2
-                   write_request_start
-                   (one (width t))
-                   (mux2 write_req_in_process (incr t) t)))
+                (mux2 (i.request.valid |: locked &: i.axi.wready) (incr t) t))
             i.clock;
       { O.finished = finishing_this_cycle
       ; address = o_req.address
@@ -131,7 +129,7 @@ struct
           ; arid = zero Axi.O.port_widths.arid
           ; arlen = zero Axi.O.port_widths.arlen
           ; arsize = zero Axi.O.port_widths.arsize
-          ; rready = gnd (* We can always receive a read response *)
+          ; rready = gnd
           }
       }
     ;;
