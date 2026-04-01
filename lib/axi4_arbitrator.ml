@@ -75,7 +75,6 @@ struct
     let b_orig_id     = sel_bottom b_fifo.q id_storage_width in
     let w_owner_is_m1 = w_fifo.q in
 
-    (* --- OUTPUTS TO MASTERS --- *)
     let m0_out = { M0.Slave.unused with
       arready = g0_ar &: s_in.arready;
       awready = g0_aw &: s_in.awready;
@@ -100,7 +99,6 @@ struct
       bid     = sel_bottom b_orig_id M1_cfg.id_width;
     } in
 
-    (* --- OUTPUT TO SLAVE --- *)
     let s_out = { S.Master.unused with
       araddr  = mux2 g1_ar m1.araddr m0.araddr;
       arid    = uresizer (mux2 g1_ar (consti 2 1) (consti 2 0)) S_cfg.id_width;
