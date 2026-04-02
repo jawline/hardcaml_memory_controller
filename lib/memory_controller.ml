@@ -54,6 +54,8 @@ struct
     [@@deriving hardcaml]
   end
 
+  (* TODO: If both controllers are uncached consolidate them into a single Shared_access_ports to avoid arb overhead. *)
+
   let create
         ~priority_mode
         ~build_mode
