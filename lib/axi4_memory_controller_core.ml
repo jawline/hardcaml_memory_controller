@@ -5,28 +5,18 @@ open Signal
 module Make
     (Memory_bus : Memory_bus_intf.S)
     (M : sig
-       val capacity_in_bytes : int
        val num_read_channels : int
        val num_write_channels : int
-       val data_bus_width : int
      end)
     (Axi4 : Axi4.S) =
 struct
   open Memory_bus
 
   let () =
-    if M.data_bus_width % 8 <> 0 then raise_s [%message "BUG: data bus must be in bytes"]
+    if data_bus_width % 8 <> 0 then raise_s [%message "BUG: data bus must be in bytes"]
   ;;
 
-  let data_bus_in_bytes = M.data_bus_width / 8
-
-  let () =
-    if M.capacity_in_bytes % data_bus_in_bytes <> 0
-    then
-      raise_s
-        [%message
-          "BUG: cannot request a capacity that is not a multiple of data_bus_width"]
-  ;;
+  let data_bus_in_bytes = data_bus_width / 8
 
   module I = struct
     type 'a t =

@@ -6,9 +6,9 @@ module Make (M : sig
     val address_width : int
     val data_bus_width : int
     val capacity_in_bytes : int
-    val num_read_channels : int
-    val num_write_channels : int
-    val cache_memory : (module Axi4_cache.Config) option
+
+    module Instruction_config : Shared_access_ports_intf.Config
+    module Data_config : Shared_access_ports_intf.Config
   end) =
 struct
   module Axi_config = struct
@@ -29,25 +29,21 @@ struct
       (Axi4)
 
   module Memory_controller = Memory_controller.Make (M) (Axi4)
-  module Memory_bus = Memory_controller.Memory_bus
-  open Memory_bus
+  include Memory_controller
 
   module I = struct
     type 'a t =
       { clock : 'a Clocking.t
-      ; write_to_controller : 'a Write_bus.Source.t list [@length M.num_write_channels]
-      ; read_to_controller : 'a Read_bus.Source.t list [@length M.num_read_channels]
+      ; instruction : 'a Instruction.Request.t
+      ; data : 'a Data.Request.t
       }
     [@@deriving hardcaml ~rtlmangle:"$"]
   end
 
   module O = struct
     type 'a t =
-      { write_to_controller : 'a Write_bus.Dest.t list [@length M.num_write_channels]
-      ; read_to_controller : 'a Read_bus.Dest.t list [@length M.num_read_channels]
-      ; write_response : 'a Write_response.With_valid.t list
-            [@length M.num_write_channels]
-      ; read_response : 'a Read_response.With_valid.t list [@length M.num_read_channels]
+      { instruction : 'a Instruction.Response.t
+      ; data : 'a Data.Response.t
       }
     [@@deriving hardcaml ~rtlmangle:"$"]
   end
@@ -57,7 +53,7 @@ struct
         ~read_latency
         ~priority_mode
         scope
-        ({ clock; write_to_controller; read_to_controller } : _ I.t)
+        ({ clock; instruction; data } : _ I.t)
     =
     let memory = Axi4.O.Of_signal.wires () in
     let mem =
@@ -68,18 +64,10 @@ struct
         ~build_mode
         ~priority_mode
         scope
-        { Memory_controller.I.clock
-        ; write_to_controller
-        ; read_to_controller
-        ; memory = mem.memory
-        }
+        { Memory_controller.I.clock; instruction; data; memory = mem.memory }
     in
     Axi4.O.Of_signal.assign memory core.memory;
-    { O.write_to_controller = core.write_to_controller
-    ; read_to_controller = core.read_to_controller
-    ; write_response = core.write_response
-    ; read_response = core.read_response
-    }
+    { O.instruction = core.instruction; data = core.data }
   ;;
 
   let hierarchical

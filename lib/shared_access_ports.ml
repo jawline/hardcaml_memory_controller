@@ -25,11 +25,34 @@ struct
 
   module Core = Axi4_memory_controller_core.Make (Memory_bus) (M) (Axi)
 
+  module Request = struct
+    type 'a t =
+      { write_to_controller : 'a Memory_bus.Write_bus.Source.t list
+            [@length M.num_write_channels]
+      ; read_to_controller : 'a Memory_bus.Read_bus.Source.t list
+            [@length M.num_read_channels]
+      }
+    [@@deriving hardcaml]
+  end
+
+  module Response = struct
+    type 'a t =
+      { write_to_controller : 'a Memory_bus.Write_bus.Dest.t list
+            [@length M.num_write_channels]
+      ; read_to_controller : 'a Memory_bus.Read_bus.Dest.t list
+            [@length M.num_read_channels]
+      ; write_response : 'a Memory_bus.Write_response.With_valid.t list
+            [@length M.num_write_channels]
+      ; read_response : 'a Memory_bus.Read_response.With_valid.t list
+            [@length M.num_read_channels]
+      }
+    [@@deriving hardcaml]
+  end
+
   module I = struct
     type 'a t =
       { clock : 'a Clocking.t
-      ; write_to_controller : 'a Write_bus.Source.t list [@length M.num_write_channels]
-      ; read_to_controller : 'a Read_bus.Source.t list [@length M.num_read_channels]
+      ; request : 'a Request.t
       ; memory : 'a Axi.I.t [@rtlprefix "memory_i$"]
       }
     [@@deriving hardcaml ~rtlmangle:"$"]
@@ -37,21 +60,18 @@ struct
 
   module O = struct
     type 'a t =
-      { write_to_controller : 'a Write_bus.Dest.t list [@length M.num_write_channels]
-      ; read_to_controller : 'a Read_bus.Dest.t list [@length M.num_read_channels]
-      ; write_response : 'a Write_response.With_valid.t list
-            [@length M.num_write_channels]
-      ; read_response : 'a Read_response.With_valid.t list [@length M.num_read_channels]
+      { response : 'a Response.t
       ; memory : 'a Axi.O.t [@rtlprefix "memory_o$"]
       }
     [@@deriving hardcaml ~rtlmangle:"$"]
   end
 
   let create
+        ~capacity_in_bytes
         ~priority_mode
         ~build_mode
         scope
-        ({ clock; write_to_controller; read_to_controller; memory } : _ I.t)
+        ({ clock; request = { write_to_controller; read_to_controller }; memory } : _ I.t)
     =
     let write_arbitrator =
       Write_arbitrator.hierarchical
@@ -69,7 +89,7 @@ struct
     in
     (* TODO: We stall on a bad read request rather than trap. We rely on the CPU stalling in tests so we stop on a known PC. It would be better to use a breakpoint as test completion. *)
     let cap_check t =
-      let capacity_in_words = M.capacity_in_bytes / (M.data_bus_width / 8) in
+      let capacity_in_words = capacity_in_bytes / (data_bus_width / 8) in
       if Int.pow 2 (width t) > capacity_in_words then t <:. capacity_in_words else vdd
     in
     let%hw can_ack_read = cap_check read_arbitrator.selected_ch.data.address in
@@ -122,28 +142,36 @@ struct
           }
     in
     (* TODO: Propagate errors *)
-    { O.write_to_controller =
-        List.map
-          ~f:(fun t ->
-            { Write_bus.Dest.ready = t.ready &: core.write_ready &: can_ack_write })
-          write_arbitrator.acks
-    ; read_to_controller =
-        List.map
-          ~f:(fun t ->
-            { Read_bus.Dest.ready = t.ready &: core.read_ready &: can_ack_read })
-          read_arbitrator.acks
-    ; write_response = core.write_response
-    ; read_response = core.read_response
+    { O.response =
+        { Response.write_to_controller =
+            List.map
+              ~f:(fun t ->
+                { Write_bus.Dest.ready = t.ready &: core.write_ready &: can_ack_write })
+              write_arbitrator.acks
+        ; read_to_controller =
+            List.map
+              ~f:(fun t ->
+                { Read_bus.Dest.ready = t.ready &: core.read_ready &: can_ack_read })
+              read_arbitrator.acks
+        ; write_response = core.write_response
+        ; read_response = core.read_response
+        }
     ; memory = core.memory
     }
   ;;
 
-  let hierarchical ~priority_mode ~build_mode (scope : Scope.t) (input : Signal.t I.t) =
+  let hierarchical
+        ~capacity_in_bytes
+        ~priority_mode
+        ~build_mode
+        (scope : Scope.t)
+        (input : Signal.t I.t)
+    =
     let module H = Hierarchy.In_scope (I) (O) in
     H.hierarchical
       ~scope
       ~name:"memory_controller"
-      (create ~priority_mode ~build_mode)
+      (create ~capacity_in_bytes ~priority_mode ~build_mode)
       input
   ;;
 end

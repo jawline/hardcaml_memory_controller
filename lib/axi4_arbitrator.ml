@@ -4,7 +4,7 @@ open Signal
 module Make (M0 : Axi4.S) (M1 : Axi4.S) (S : Axi4.S) = struct
   module I = struct
     type 'a t =
-      { clocking : 'a Clocking.t
+      { clock : 'a Clocking.t
       ; m0 : 'a M0.O.t
       ; m1 : 'a M1.O.t
       ; s_in : 'a S.I.t
@@ -37,12 +37,12 @@ module Make (M0 : Axi4.S) (M1 : Axi4.S) (S : Axi4.S) = struct
 
   let unpack_id t = Packed_id.Of_signal.unpack t
 
-  let id_fifo ~(clocking : _ Clocking.t) ~wr ~rd ~d =
+  let id_fifo ~(clock : _ Clocking.t) ~wr ~rd ~d =
     let fifo =
       Fifo.create
         ~capacity:16
-        ~clock:clocking.clock
-        ~clear:clocking.clear
+        ~clock:clock.clock
+        ~clear:clock.clear
         ~showahead:true
         ~wr
         ~d
@@ -52,11 +52,11 @@ module Make (M0 : Axi4.S) (M1 : Axi4.S) (S : Axi4.S) = struct
     ~:(fifo.empty), fifo.full, unpack_id fifo.q
   ;;
 
-  let rd_fifo ({ I.clocking; m0; m1; s_in } : _ I.t) =
+  let rd_fifo ({ I.clock; m0; m1; s_in } : _ I.t) =
     let rd_master_ready = wire 1 in
     let r_fifo_valid, r_fifo_full, r_fifo_q =
       id_fifo
-        ~clocking
+        ~clock
         ~wr:(s_in.arready &: (m0.arvalid |: m1.arvalid))
         ~rd:(s_in.rvalid &: s_in.rlast &: rd_master_ready)
         ~d:(mux2 m0.arvalid (pack_id gnd m0.arid) (pack_id vdd m1.arid))
@@ -70,11 +70,11 @@ module Make (M0 : Axi4.S) (M1 : Axi4.S) (S : Axi4.S) = struct
     r_owner_is_m1, m0_ar, m1_ar, r_orig_id, r_fifo_valid, r_fifo_full
   ;;
 
-  let w_fifo ~can_write ({ I.clocking; m0; m1; s_in } : _ I.t) =
+  let w_fifo ~can_write ({ I.clock; m0; m1; s_in } : _ I.t) =
     let w_master_valid_and_last = wire 1 in
     let w_fifo_valid, w_fifo_full, w_fifo_q =
       id_fifo
-        ~clocking
+        ~clock
         ~wr:(can_write &: s_in.awready &: (m0.awvalid |: m1.awvalid))
         ~rd:(s_in.awready &: w_master_valid_and_last)
         ~d:(mux2 m0.awvalid (pack_id gnd m0.awid) (pack_id vdd m1.awid))
@@ -87,11 +87,11 @@ module Make (M0 : Axi4.S) (M1 : Axi4.S) (S : Axi4.S) = struct
     w_owner_is_m1, w_orig_id, w_fifo_valid, w_fifo_full
   ;;
 
-  let b_fifo ~can_write ({ I.clocking; m0; m1; s_in } : _ I.t) =
+  let b_fifo ~can_write ({ I.clock; m0; m1; s_in } : _ I.t) =
     let b_master_ready = wire 1 in
     let b_fifo_valid, b_fifo_full, r_fifo_q =
       id_fifo
-        ~clocking
+        ~clock
         ~wr:(can_write &: s_in.awready &: (m0.awvalid |: m1.awvalid))
         ~rd:(s_in.bvalid &: b_master_ready)
         ~d:(mux2 m0.awvalid (pack_id gnd m0.awid) (pack_id vdd m1.awid))
@@ -103,7 +103,7 @@ module Make (M0 : Axi4.S) (M1 : Axi4.S) (S : Axi4.S) = struct
     b_owner_is_m1, b_orig_id, b_fifo_valid, b_fifo_full
   ;;
 
-  let create (inputs : _ I.t) =
+  let create _scope (inputs : _ I.t) =
     let { I.m0; m1; s_in; _ } = inputs in
     let w_and_b_have_capacity = wire 1 in
     (* We keep metadata fifos so that we can support multiple AXI4 transactions
@@ -173,5 +173,10 @@ module Make (M0 : Axi4.S) (M1 : Axi4.S) (S : Axi4.S) = struct
       }
     in
     { O.m0_out; m1_out; s_out }
+  ;;
+
+  let hierarchical (scope : Scope.t) (input : Signal.t I.t) =
+    let module H = Hierarchy.In_scope (I) (O) in
+    H.hierarchical ~scope ~name:"cemory_controller" create input
   ;;
 end

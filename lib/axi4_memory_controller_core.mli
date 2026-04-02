@@ -9,10 +9,8 @@ open Hardcaml
 module Make
     (Memory_bus : Memory_bus_intf.S)
     (M : sig
-       val capacity_in_bytes : int
        val num_read_channels : int
        val num_write_channels : int
-       val data_bus_width : int
      end)
     (Axi4 : Axi4.S) : sig
   module I : sig

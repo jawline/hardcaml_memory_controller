@@ -4,6 +4,8 @@ open Hardcaml
 module Make
     (M : sig
        val address_width : int
+       val data_bus_width : int
+       val capacity_in_bytes : int
 
        module Instruction_config : Shared_access_ports_intf.Config
        module Data_config : Shared_access_ports_intf.Config
@@ -17,8 +19,8 @@ module Make
   module I : sig
     type 'a t =
       { clock : 'a Clocking.t
-      ; instruction : 'a Instruction.I.t
-      ; data : 'a Data.I.t
+      ; instruction : 'a Instruction.Request.t
+      ; data : 'a Data.Request.t
       ; memory : 'a Axi.I.t
       }
     [@@deriving hardcaml]
@@ -26,8 +28,8 @@ module Make
 
   module O : sig
     type 'a t =
-      { instruction : 'a Instruction.O.t
-      ; data : 'a Data.O.t
+      { instruction : 'a Instruction.Response.t
+      ; data : 'a Data.Response.t
       ; memory : 'a Axi.O.t
       }
     [@@deriving hardcaml]
