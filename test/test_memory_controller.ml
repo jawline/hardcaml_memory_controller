@@ -52,7 +52,21 @@ struct
         module Instruction_config = struct
           let num_read_channels = C.num_channels
           let num_write_channels = C.num_channels
-          let cache_memory = None
+let cache_memory =
+            if C.cache
+            then
+              Some
+                (module struct
+                  let line_width = 16
+                  let num_cache_lines = 256
+                  let num_read_channels = C.num_channels
+                  let num_write_channels = C.num_channels
+                  let register_responses = true
+                  let register_axi_requests = true
+                end : Axi4_cache.Config)
+            else None
+          ;;
+
         end
 
         module Data_config = struct
