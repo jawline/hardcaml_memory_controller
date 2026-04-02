@@ -77,6 +77,7 @@ struct
     ( read_locked |: accepting_new_transfer
     , cut_through_reg ~enable:accepting_new_transfer reg_spec_no_clear i.memory.arid
     , mux2 read_locked read_address_reg incoming_address
+    , ((accepting_new_transfer &: (i.memory.arlen ==:. 0)) |: ( read_ctr ==:. 1))
     , ready &: ~:read_locked )
   ;;
 
@@ -104,7 +105,7 @@ struct
     let%hw write_address =
       write_address +: uresize ~width:(width write_address) write_ctr
     in
-    let%hw read_valid, read_id, read_address, read_ready =
+    let%hw read_valid, read_id, read_address, last_read, read_ready =
       lock_read ~ready:~:should_push_back (Scope.sub_scope scope "lock_read") i
     in
     let%hw read_address_in_range =
@@ -159,7 +160,7 @@ struct
         ; awready =
             ~:should_push_back &: memory.awvalid &: memory.wvalid &: i.memory.wlast
         ; arready = read_ready
-        ; rlast = vdd
+        ; rlast = pipeline ~n:read_latency reg_spec last_read
         }
     }
   ;;
