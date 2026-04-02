@@ -11,7 +11,8 @@ module Instruction_or_data = struct
   type t =
     | Instruction
     | Data
-    | Both [@@deriving equal]
+    | Both
+  [@@deriving equal]
 end
 
 module Make_tests (C : sig
@@ -148,16 +149,43 @@ struct
       Step.cycle
         h
         { Step.input_hold with
-          data =
+          instruction =
+            { Step.input_hold.instruction with
+              write_to_controller =
+                List.mapi
+                  ~f:(fun i v ->
+                    if i = ch
+                    then
+                      { v with
+                        valid =
+                          (if Instruction_or_data.equal path Instruction
+                           then v.valid
+                           else gnd)
+                      }
+                    else v)
+                  Step.input_hold.instruction.write_to_controller
+            }
+        ; data =
             { Step.input_hold.data with
               write_to_controller =
                 List.mapi
-                  ~f:(fun i v -> if i = ch then { v with valid = gnd } else v)
+                  ~f:(fun i v ->
+                    if i = ch
+                    then
+                      { v with
+                        valid =
+                          (if Instruction_or_data.equal path Data then v.valid else gnd)
+                      }
+                    else v)
                   Step.input_hold.data.write_to_controller
             }
         }
     in
-    let ch_rx = List.nth_exn o.before_edge.data.write_response ch in
+    let ch_rx =
+      if Instruction_or_data.equal path Instruction
+      then List.nth_exn o.before_edge.instruction.write_response ch
+      else List.nth_exn o.before_edge.data.write_response ch
+    in
     if to_bool ch_rx.valid
     then ()
     else wait_for_write_ack ~path ~timeout:(timeout - 1) ~ch h
@@ -207,8 +235,21 @@ struct
             }
         }
     in
-    let ch_tx = List.nth_exn o.before_edge.data.write_to_controller ch in
-    let ch_rx = List.nth_exn o.before_edge.data.write_response ch in
+    let is_data = Instruction_or_data.equal path Data in
+    let ch_tx =
+      List.nth_exn
+        (if is_data
+         then o.before_edge.data.write_to_controller
+         else o.before_edge.instruction.write_to_controller)
+        ch
+    in
+    let ch_rx =
+      List.nth_exn
+        (if is_data
+         then o.before_edge.data.write_response
+         else o.before_edge.instruction.write_response)
+        ch
+    in
     if to_bool ch_tx.ready
     then (
       let () =
