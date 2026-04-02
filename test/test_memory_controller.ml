@@ -7,11 +7,19 @@ open! Bits
 let debug = true
 let capacity_in_bytes = 65536
 
+module Instruction_or_data = struct
+  type t =
+    | Instruction
+    | Data 
+    | Both 
+end
+
 module Make_tests (C : sig
     val num_channels : int
     val read_latency : int
     val synthetic_pushback : int
     val cache : bool
+    val instruction_or_data : Instruction_or_data.t
   end) =
 struct
   let data_width = 32
@@ -134,7 +142,7 @@ struct
       f
   ;;
 
-  let rec wait_for_write_ack ~timeout ~ch h =
+  let rec wait_for_write_ack ~path ~timeout ~ch h =
     if timeout = 0 then raise_s [%message "BUG: Timeout writing ack" (ch : int)];
     let o =
       Step.cycle
@@ -153,20 +161,37 @@ struct
     if to_bool ch_rx.valid then () else wait_for_write_ack ~timeout:(timeout - 1) ~ch h
   ;;
 
-  let rec write ~shared_mem ~timeout ~address ~value ~ch h =
+  let rec write ~path ~shared_mem ~timeout ~address ~value ~ch h =
     if timeout = 0 then raise_s [%message "BUG: Timeout writing" (ch : int)];
     let o =
       Step.cycle
         h
         { Step.input_hold with
-          data =
+           instruction =
             { Step.input_hold.data with
               write_to_controller =
                 List.mapi
                   ~f:(fun i v ->
                     if i = ch
                     then
-                      { Memory_controller.Memory_bus.Write_bus.Source.valid = vdd
+                      { Memory_controller.Memory_bus.Write_bus.Source.valid = if Path.equal path Instruction then vdd else gnd
+                      ; data =
+                          { address = of_unsigned_int ~width:addr_bits address
+                          ; write_data = of_unsigned_int ~width:32 value
+                          ; wstrb = ones 4
+                          }
+                      }
+                    else v)
+                  Step.input_hold.data.write_to_controller
+            } 
+          ; data =
+            { Step.input_hold.data with
+              write_to_controller =
+                List.mapi
+                  ~f:(fun i v ->
+                    if i = ch
+                    then
+                      { Memory_controller.Memory_bus.Write_bus.Source.valid = if Path.equal path Data then vdd else gnd
                       ; data =
                           { address = of_unsigned_int ~width:addr_bits address
                           ; write_data = of_unsigned_int ~width:32 value
@@ -203,7 +228,7 @@ struct
       in
       Array.set shared_mem address value;
       ())
-    else write ~shared_mem ~timeout:(timeout - 1) ~address ~value ~ch h
+    else write ~path ~shared_mem ~timeout:(timeout - 1) ~address ~value ~ch h
   ;;
 
   let read_and_assert ~shared_mem ~address ~ch h =
@@ -292,9 +317,13 @@ struct
           Splittable_random.int ~lo:0 ~hi:((capacity_in_bytes / data_bytes) - 1) random
         in
         let value = Splittable_random.int ~lo:0 ~hi:0xDEADBEEF random in
+        let path = match C.instruction_or_data with
+          | Instruction -> Instruction
+             | Data -> Data
+             | Both -> if Random.State.bool random then Instruction else Data in 
         if backpressure = 0
         then (
-          write ~timeout:5000 ~shared_mem ~address ~value ~ch h;
+          write ~path ~timeout:5000 ~shared_mem ~address ~value ~ch h;
           loop (i - 1))
         else (
           let _o = Step.cycle h Step.input_hold in
@@ -370,6 +399,7 @@ include Make_tests (struct
     let read_latency = 2
     let synthetic_pushback = 1
     let cache = false
+        let instruction_or_data = Instruction_or_data.Both
   end)
 
 include Make_tests (struct
@@ -377,6 +407,7 @@ include Make_tests (struct
     let read_latency = 1
     let synthetic_pushback = 7
     let cache = false
+        let instruction_or_data = Instruction_or_data.Both
   end)
 
 include Make_tests (struct
@@ -384,6 +415,7 @@ include Make_tests (struct
     let read_latency = 5
     let synthetic_pushback = 0
     let cache = false
+        let instruction_or_data = Instruction_or_data.Both
   end)
 
 include Make_tests (struct
@@ -391,6 +423,7 @@ include Make_tests (struct
     let read_latency = 19
     let synthetic_pushback = 4
     let cache = false
+        let instruction_or_data = Instruction_or_data.Both
   end)
 
 include Make_tests (struct
@@ -398,6 +431,7 @@ include Make_tests (struct
     let read_latency = 2
     let synthetic_pushback = 1
     let cache = true
+        let instruction_or_data = Instruction_or_data.Instruction
   end)
 
 include Make_tests (struct
@@ -405,6 +439,7 @@ include Make_tests (struct
     let read_latency = 1
     let synthetic_pushback = 7
     let cache = true
+        let instruction_or_data = Instruction_or_data.Data
   end)
 
 include Make_tests (struct
@@ -412,6 +447,7 @@ include Make_tests (struct
     let read_latency = 3
     let synthetic_pushback = 0
     let cache = true
+        let instruction_or_data = Instruction_or_data.Instruction
   end)
 
 include Make_tests (struct
@@ -419,4 +455,6 @@ include Make_tests (struct
     let read_latency = 13
     let synthetic_pushback = 3
     let cache = true
+
+        let instruction_or_data = Instruction_or_data.Data
   end)

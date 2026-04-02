@@ -77,7 +77,7 @@ struct
     ( read_locked |: accepting_new_transfer
     , cut_through_reg ~enable:accepting_new_transfer reg_spec_no_clear i.memory.arid
     , mux2 read_locked read_address_reg incoming_address
-    , ((accepting_new_transfer &: (i.memory.arlen ==:. 0)) |: ( read_ctr ==:. 1))
+    , accepting_new_transfer &: (i.memory.arlen ==:. 0) |: (read_ctr ==:. 1)
     , ready &: ~:read_locked )
   ;;
 
