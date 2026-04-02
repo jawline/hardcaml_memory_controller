@@ -40,7 +40,7 @@ struct
         let capacity_in_bytes = capacity_in_bytes
         let synthetic_pushback = C.synthetic_pushback
       end)
-      (Axi4)
+      (Axi4_out)
 
   module Memory_controller =
     Memory_controller.Make
@@ -85,7 +85,7 @@ struct
     module O = Memory_controller.O
 
     let create scope ({ I.clock; _ } as i) =
-      let memory = Axi4.O.Of_signal.wires () in
+      let memory = Axi4_out.O.Of_signal.wires () in
       let ram =
         Memory.hierarchical
           ~build_mode:Simulation
@@ -100,7 +100,7 @@ struct
           scope
           { i with memory = ram.memory }
       in
-      Axi4.O.Of_signal.assign memory ctrl.memory;
+      Axi4_out.O.Of_signal.assign memory ctrl.memory;
       ctrl
     ;;
 
