@@ -103,6 +103,10 @@ module Make (M0 : Axi4.S) (M1 : Axi4.S) (S : Axi4.S) = struct
     b_owner_is_m1, b_orig_id, b_fifo_valid, b_fifo_full
   ;;
 
+  (* This file arbitrates two axi4 interfaces taking N bit ID inputs and
+     emitting a 1 bit (M0 or M1) ID output. The module uses Fifos to coordinate
+     the read, write, and response channels so we know which side we should
+     handle next. *)
   let create _scope (inputs : _ I.t) =
     let { I.m0; m1; s_in; _ } = inputs in
     let w_and_b_have_capacity = wire 1 in
