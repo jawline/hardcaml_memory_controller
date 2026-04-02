@@ -143,10 +143,11 @@ module Make (M0 : Axi4.S) (M1 : Axi4.S) (S : Axi4.S) = struct
     let%hw b_fifo_valid = b_fifo_valid in
     let%hw w_owner_is_m1 = mux2 w_fifo_valid w_owner_is_m1 ~:(m0.awvalid) in
     let m0_out =
+      let%hw wready_cut_through = ~:w_fifo_valid &: m0.awvalid &: s_in.wready in
+      let%hw wready_fifo = s_in.wready &: w_fifo_valid &: ~:w_owner_is_m1 in
       { M0.I.arready = m0_ar &: s_in.arready
       ; awready = m0_aw &: s_in.awready
-      ; wready =
-          s_in.wready &: w_fifo_valid &: ~:w_owner_is_m1 |: ~:(w_fifo_valid &: s_in.wready)
+      ; wready = wready_cut_through |: wready_fifo
       ; rvalid = s_in.rvalid &: r_fifo_valid &: ~:r_owner_is_m1
       ; rdata = s_in.rdata
       ; rresp = s_in.rresp
@@ -158,13 +159,13 @@ module Make (M0 : Axi4.S) (M1 : Axi4.S) (S : Axi4.S) = struct
       }
     in
     let m1_out =
+      let%hw wready_cut_through =
+        ~:w_fifo_valid &: ~:(m0.awvalid) &: m1.awvalid &: s_in.wready
+      in
+      let%hw wready_fifo = s_in.wready &: w_fifo_valid &: w_owner_is_m1 in
       { M1.I.arready = m1_ar &: s_in.arready
       ; awready = m1_aw &: s_in.awready
-      ; wready =
-          s_in.wready
-          &: w_fifo_valid
-          &: w_owner_is_m1
-          |: (~:w_fifo_valid &: ~:(m0.awvalid) &: s_in.wready)
+      ; wready = wready_cut_through |: wready_fifo
       ; rvalid = s_in.rvalid &: r_fifo_valid &: r_owner_is_m1
       ; rdata = s_in.rdata
       ; rresp = s_in.rresp

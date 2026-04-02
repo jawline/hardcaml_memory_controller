@@ -156,7 +156,7 @@ struct
               (repeat ~count:(width read_data) read_address_in_range)
             &: read_data
         ; rresp = zero 2
-        ; wready = ~:should_push_back
+        ; wready = memory.awvalid &: ~:should_push_back
         ; awready =
             ~:should_push_back &: memory.awvalid &: memory.wvalid &: i.memory.wlast
         ; arready = read_ready
