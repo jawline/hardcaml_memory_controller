@@ -3,17 +3,10 @@ open Hardcaml
 open Signal
 
 module Make
-    (M : sig
-       val address_width : int
-       val shared_access_configs : (module Shared_access_ports_intf.Config) list
-     end)
+    (M : Shared_access_ports_intf.Config)
+    (Memory_bus : Memory_bus_intf.S)
     (Axi : Axi4.S) =
 struct
-  module Memory_bus = Memory_bus.Make (struct
-      include M
-    end)
-
-  module Cross_clocks = Cross_clock.Make (Memory_bus)
   open Memory_bus
 
   module Read_arbitrator =

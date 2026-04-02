@@ -1,12 +1,10 @@
 open Hardcaml
-open Hardcaml_axi
 open Signal
 
 module Make (M0 : Axi4.S) (M1 : Axi4.S) (S : Axi4.S) = struct
   module I = struct
     type 'a t =
-      { clock : 'a
-      ; reset : 'a
+      { clocking : 'a Clocking.t
       ; m0 : 'a M0.O.t
       ; m1 : 'a M1.O.t
       ; s_in : 'a S.I.t
@@ -39,99 +37,139 @@ module Make (M0 : Axi4.S) (M1 : Axi4.S) (S : Axi4.S) = struct
 
   let unpack_id t = Packed_id.Of_signal.unpack t
 
-  let create (inputs : _ I.t) =
-    let { I.clock; reset; m0; m1; s_in } = inputs in
-    let fifo_width = 1 + id_storage_width in
-    (* --- READ CHANNEL --- *)
-    let r_fifo =
+  let id_fifo ~(clocking : _ Clocking.t) ~wr ~rd ~d =
+    let fifo =
       Fifo.create
-        ()
         ~capacity:16
-        ~clock
-        ~clear:reset
+        ~clock:clocking.clock
+        ~clear:clocking.clear
         ~showahead:true
-        ~wr:(s_in.arready &: (m0.arvalid |: m1.arvalid))
-        ~d:(mux2 m0.arvalid (pack_id gnd m0.arid) (pack_id vdd m1.arid))
-        ~rd:
-          (s_in.rvalid
-           &: assert false
-           (* The master we are writing back to is ready *) &: s_in.rlast)
+        ~wr
+        ~d
+        ~rd
+        ()
     in
-    let g0_ar = m0.arvalid &: ~:(r_fifo.full) in
-    let g1_ar = ~:(m0.arvalid) &: m1.arvalid &: ~:(r_fifo.full) in
+    ~:(fifo.empty), fifo.full, unpack_id fifo.q
+  ;;
+
+  let rd_fifo ({ I.clocking; m0; m1; s_in } : _ I.t) =
+    let rd_master_ready = wire 1 in
+    let r_fifo_valid, r_fifo_full, r_fifo_q =
+      id_fifo
+        ~clocking
+        ~wr:(s_in.arready &: (m0.arvalid |: m1.arvalid))
+        ~rd:(s_in.rvalid &: s_in.rlast &: rd_master_ready)
+        ~d:(mux2 m0.arvalid (pack_id gnd m0.arid) (pack_id vdd m1.arid))
+    in
+    let m0_ar = m0.arvalid &: ~:r_fifo_full in
+    let m1_ar = ~:(m0.arvalid) &: m1.arvalid &: ~:r_fifo_full in
     (* Unpack Read Owner and Original ID *)
-    let r_owner_is_m1 = (unpack_id r_fifo.q).owner in
-    let r_orig_id = (unpack_id r_fifo.q).id in
-    (* --- WRITE CHANNEL --- *)
-    let b_fifo =
-      Fifo.create
-        ~capacity:16
-        ~clock
-        ~clear:reset
-        ~showahead:true
-        ~wr:(s_in.awready &: (m0.awvalid |: m1.awvalid))
+    let r_owner_is_m1 = r_fifo_q.owner in
+    rd_master_ready <-- mux2 r_owner_is_m1 m1.rready m0.rready;
+    let r_orig_id = r_fifo_q.id in
+    r_owner_is_m1, m0_ar, m1_ar, r_orig_id, r_fifo_valid, r_fifo_full
+  ;;
+
+  let w_fifo ~can_write ({ I.clocking; m0; m1; s_in } : _ I.t) =
+    let w_master_valid_and_last = wire 1 in
+    let w_fifo_valid, w_fifo_full, w_fifo_q =
+      id_fifo
+        ~clocking
+        ~wr:(can_write &: s_in.awready &: (m0.awvalid |: m1.awvalid))
+        ~rd:(s_in.awready &: w_master_valid_and_last)
         ~d:(mux2 m0.awvalid (pack_id gnd m0.awid) (pack_id vdd m1.awid))
-        ~rd:(s_in.bvalid &: assert false (* bready for the appropriate master *))
-        ()
+    in
+    (* Unpack Read Owner and Original ID *)
+    let w_owner_is_m1 = w_fifo_q.owner in
+    w_master_valid_and_last
+    <-- mux2 w_owner_is_m1 (m1.wvalid &: m1.wlast) (m0.wvalid &: m0.wlast);
+    let w_orig_id = w_fifo_q.id in
+    w_owner_is_m1, w_orig_id, w_fifo_valid, w_fifo_full
+  ;;
+
+  let b_fifo ~can_write ({ I.clocking; m0; m1; s_in } : _ I.t) =
+    let b_master_ready = wire 1 in
+    let b_fifo_valid, b_fifo_full, r_fifo_q =
+      id_fifo
+        ~clocking
+        ~wr:(can_write &: s_in.awready &: (m0.awvalid |: m1.awvalid))
+        ~rd:(s_in.bvalid &: b_master_ready)
+        ~d:(mux2 m0.awvalid (pack_id gnd m0.awid) (pack_id vdd m1.awid))
+    in
+    (* Unpack Read Owner and Original ID *)
+    let b_owner_is_m1 = r_fifo_q.owner in
+    b_master_ready <-- mux2 b_owner_is_m1 m1.bready m0.bready;
+    let b_orig_id = r_fifo_q.id in
+    b_owner_is_m1, b_orig_id, b_fifo_valid, b_fifo_full
+  ;;
+
+  let create (inputs : _ I.t) =
+    let { I.m0; m1; s_in; _ } = inputs in
+    let w_and_b_have_capacity = wire 1 in
+    (* We keep metadata fifos so that we can support multiple AXI4 transactions
+    in flight while arbitrating. M0 always gets priority. *)
+    (* --- READ CHANNEL --- *)
+    let r_owner_is_m1, m0_ar, m1_ar, r_orig_id, r_fifo_valid, _r_fifo_full =
+      rd_fifo inputs
     in
     (* W FIFO to prevent data interleaving *)
-    let w_fifo =
-      Fifo.create
-        ~capacity:16
-        ~clock
-        ~clear:reset
-        ~showahead:true
-        ~wr:(s_in.awready &: (m0.awvalid |: m1.awvalid))
-        ~d:(~:(m0.awvalid) &: m1.awvalid)
-        ~rd:(s_in.wready &: assert false (* wvalid &: wlast for the appropriate master *))
-        ()
+    let w_owner_is_m1, _w_orig_id, w_fifo_valid, w_fifo_full =
+      w_fifo ~can_write:w_and_b_have_capacity inputs
     in
-    let g0_aw = m0.awvalid &: ~:(b_fifo.full) in
-    let g1_aw = ~:(m0.awvalid) &: m1.awvalid &: ~:(b_fifo.full) in
-    let b_owner_is_m1 = (unpack_id b_fifo.q).owner in
-    let b_orig_id = (unpack_id b_fifo.q).id in
-    let w_owner_is_m1 = w_fifo.q in
+    let m0_aw = m0.awvalid &: ~:w_and_b_have_capacity in
+    let m1_aw = ~:(m0.awvalid) &: m1.awvalid &: ~:w_and_b_have_capacity in
+    (* --- WRITE RESPONSE CHANNEL --- *)
+    let b_owner_is_m1, b_orig_id, b_fifo_valid, b_fifo_full =
+      b_fifo ~can_write:w_and_b_have_capacity inputs
+    in
+    w_and_b_have_capacity <-- (~:w_fifo_full &: ~:b_fifo_full);
     let m0_out =
-      { M0.I.arready = g0_ar &: s_in.arready
-      ; awready = g0_aw &: s_in.awready
-      ; wready = s_in.wready &: ~:(w_fifo.empty) &: ~:w_owner_is_m1
-      ; rvalid = s_in.rvalid &: ~:(r_fifo.empty) &: ~:r_owner_is_m1
+      { M0.I.arready = m0_ar &: s_in.arready
+      ; awready = m0_aw &: s_in.awready
+      ; wready = s_in.wready &: w_fifo_valid &: ~:w_owner_is_m1
+      ; rvalid = s_in.rvalid &: r_fifo_valid &: ~:r_owner_is_m1
       ; rdata = s_in.rdata
       ; rresp = s_in.rresp
       ; rlast = s_in.rlast
       ; rid = sel_bottom ~width:M0.id_width r_orig_id
-      ; bvalid = s_in.bvalid &: ~:(b_fifo.empty) &: ~:b_owner_is_m1
+      ; bvalid = s_in.bvalid &: b_fifo_valid &: ~:b_owner_is_m1
       ; bresp = s_in.bresp
       ; bid = sel_bottom ~width:M0.id_width b_orig_id
       }
     in
     let m1_out =
-      { M1.I.arready = g1_ar &: s_in.arready
-      ; awready = g1_aw &: s_in.awready
-      ; wready = s_in.wready &: ~:(w_fifo.empty) &: w_owner_is_m1
-      ; rvalid = s_in.rvalid &: ~:(r_fifo.empty) &: r_owner_is_m1
+      { M1.I.arready = m1_ar &: s_in.arready
+      ; awready = m1_aw &: s_in.awready
+      ; wready = s_in.wready &: w_fifo_valid &: w_owner_is_m1
+      ; rvalid = s_in.rvalid &: r_fifo_valid &: r_owner_is_m1
       ; rdata = s_in.rdata
       ; rresp = s_in.rresp
       ; rlast = s_in.rlast
       ; rid = sel_bottom ~width:M1.id_width r_orig_id
-      ; bvalid = s_in.bvalid &: ~:(b_fifo.empty) &: b_owner_is_m1
+      ; bvalid = s_in.bvalid &: b_fifo_valid &: b_owner_is_m1
       ; bresp = s_in.bresp
       ; bid = sel_bottom ~width:M1.id_width b_orig_id
       }
     in
     let s_out =
-      { S.O.araddr = mux2 g1_ar m1.araddr m0.araddr
-      ; arid = g1_ar
-      ; arvalid = g0_ar |: g1_ar
-      ; awaddr = mux2 g1_aw m1.awaddr m0.awaddr
-      ; awid = g1_aw
-      ; awvalid = g0_aw |: g1_aw
+      { S.O.arvalid = m0_ar |: m1_ar
+      ; araddr = mux2 m1_ar m1.araddr m0.araddr
+      ; arlen = mux2 m1_ar m1.arlen m0.arlen
+      ; arsize = mux2 m1_ar m1.arsize m0.arsize
+      ; arburst = mux2 m1_ar m1.arburst m0.arburst
+      ; arid = m1_ar
+      ; awaddr = mux2 m1_aw m1.awaddr m0.awaddr
+      ; awlen = mux2 m1_aw m1.awlen m0.awlen
+      ; awsize = mux2 m1_aw m1.awsize m0.awsize
+      ; awburst = mux2 m1_aw m1.awburst m0.awburst
+      ; awid = m1_aw
+      ; awvalid = m0_aw |: m1_aw
+      ; wvalid = w_fifo_valid &: mux2 w_owner_is_m1 m1.wvalid m0.wvalid
       ; wdata = mux2 w_owner_is_m1 m1.wdata m0.wdata
       ; wstrb = mux2 w_owner_is_m1 m1.wstrb m0.wstrb
-      ; wvalid = mux2 w_owner_is_m1 m1.wvalid m0.wvalid &: ~:(w_fifo.empty)
       ; wlast = mux2 w_owner_is_m1 m1.wlast m0.wlast
-      ; rready = assert false (* rready of r master *)
-      ; bready = assert false (* bready of b master *)
+      ; rready = r_fifo_valid &: mux2 r_owner_is_m1 m1.rready m0.rready
+      ; bready = b_fifo_valid &: mux2 b_owner_is_m1 m1.bready m0.bready
       }
     in
     { O.m0_out; m1_out; s_out }
