@@ -52,7 +52,7 @@ module Make (M0 : Axi4.S) (M1 : Axi4.S) (S : Axi4.S) = struct
     ~:(fifo.empty), fifo.full, unpack_id fifo.q
   ;;
 
-  let rd_fifo ({ I.clock; m0; m1; s_in } : _ I.t) =
+  let rd_fifo scope ({ I.clock; m0; m1; s_in } : _ I.t) =
     let rd_master_ready = wire 1 in
     let r_fifo_valid, r_fifo_full, r_fifo_q =
       id_fifo
@@ -61,21 +61,29 @@ module Make (M0 : Axi4.S) (M1 : Axi4.S) (S : Axi4.S) = struct
         ~rd:(s_in.rvalid &: s_in.rlast &: rd_master_ready)
         ~d:(mux2 m0.arvalid (pack_id gnd m0.arid) (pack_id vdd m1.arid))
     in
-    let m0_ar = m0.arvalid &: ~:r_fifo_full in
-    let m1_ar = ~:(m0.arvalid) &: m1.arvalid &: ~:r_fifo_full in
+    let%hw r_fifo_valid = r_fifo_valid in
+    let%hw r_fifo_full = r_fifo_full in
+    let%hw m0_ar = m0.arvalid &: ~:r_fifo_full in
+    let%hw m1_ar = ~:(m0.arvalid) &: m1.arvalid &: ~:r_fifo_full in
     (* Unpack Read Owner and Original ID *)
-    let r_owner_is_m1 = r_fifo_q.owner in
+    let%hw r_owner_is_m1 = r_fifo_q.owner in
     rd_master_ready <-- mux2 r_owner_is_m1 m1.rready m0.rready;
     let r_orig_id = r_fifo_q.id in
     r_owner_is_m1, m0_ar, m1_ar, r_orig_id, r_fifo_valid, r_fifo_full
   ;;
 
-  let w_fifo ~can_write ({ I.clock; m0; m1; s_in } : _ I.t) =
-    let w_master_valid_and_last = wire 1 in
+  let w_fifo ~can_write scope ({ I.clock; m0; m1; s_in } : _ I.t) =
+    let%hw w_master_valid_and_last = wire 1 in
+    (* We cut through wvalid if the fifo is empty. *)
+    let%hw empty_and_incoming_is_last = wire 1 in
     let w_fifo_valid, w_fifo_full, w_fifo_q =
       id_fifo
         ~clock
-        ~wr:(can_write &: s_in.awready &: (m0.awvalid |: m1.awvalid))
+        ~wr:
+          (can_write
+           &: s_in.awready
+           &: (m0.awvalid |: m1.awvalid)
+           &: ~:empty_and_incoming_is_last)
         ~rd:(s_in.awready &: w_master_valid_and_last)
         ~d:(mux2 m0.awvalid (pack_id gnd m0.awid) (pack_id vdd m1.awid))
     in
@@ -83,6 +91,10 @@ module Make (M0 : Axi4.S) (M1 : Axi4.S) (S : Axi4.S) = struct
     let w_owner_is_m1 = w_fifo_q.owner in
     w_master_valid_and_last
     <-- mux2 w_owner_is_m1 (m1.wvalid &: m1.wlast) (m0.wvalid &: m0.wlast);
+    empty_and_incoming_is_last
+    <-- (~:w_fifo_valid
+         &: (m0.awvalid &: m0.wvalid &: m0.wlast)
+         |: (~:(m0.awvalid) &: m1.awvalid &: m1.wvalid &: m1.wlast));
     let w_orig_id = w_fifo_q.id in
     w_owner_is_m1, w_orig_id, w_fifo_valid, w_fifo_full
   ;;
@@ -107,32 +119,34 @@ module Make (M0 : Axi4.S) (M1 : Axi4.S) (S : Axi4.S) = struct
      emitting a 1 bit (M0 or M1) ID output. The module uses Fifos to coordinate
      the read, write, and response channels so we know which side we should
      handle next. *)
-  let create scope (({ I.m0; m1; s_in; _ } as inputs)  : _ I.t) =
+  let create scope ({ I.m0; m1; s_in; _ } as inputs : _ I.t) =
     let%hw w_and_b_have_capacity = wire 1 in
     (* We keep metadata fifos so that we can support multiple AXI4 transactions
     in flight while arbitrating. M0 always gets priority. *)
     (* --- READ CHANNEL --- *)
     let r_owner_is_m1, m0_ar, m1_ar, r_orig_id, r_fifo_valid, _r_fifo_full =
-      rd_fifo inputs
+      rd_fifo scope inputs
     in
     (* W FIFO to prevent data interleaving *)
     let w_owner_is_m1, _w_orig_id, w_fifo_valid, w_fifo_full =
-      w_fifo ~can_write:w_and_b_have_capacity inputs
+      w_fifo ~can_write:w_and_b_have_capacity scope inputs
     in
-    let%hw m0_aw = m0.awvalid &:  w_and_b_have_capacity in
+    let%hw m0_aw = m0.awvalid &: w_and_b_have_capacity in
     let%hw m1_aw = ~:(m0.awvalid) &: m1.awvalid &: w_and_b_have_capacity in
     (* --- WRITE RESPONSE CHANNEL --- *)
     let b_owner_is_m1, b_orig_id, b_fifo_valid, b_fifo_full =
       b_fifo ~can_write:w_and_b_have_capacity inputs
     in
     w_and_b_have_capacity <-- (~:w_fifo_full &: ~:b_fifo_full);
-    let%hw r_fifo_valid in
-    let%hw w_fifo_valid in
-    let%hw b_fifo_valid in 
+    let%hw r_fifo_valid = r_fifo_valid in
+    let%hw w_fifo_valid = w_fifo_valid in
+    let%hw b_fifo_valid = b_fifo_valid in
+    let%hw w_owner_is_m1 = mux2 w_fifo_valid w_owner_is_m1 ~:(m0.awvalid) in
     let m0_out =
       { M0.I.arready = m0_ar &: s_in.arready
       ; awready = m0_aw &: s_in.awready
-      ; wready = s_in.wready &: w_fifo_valid &: ~:w_owner_is_m1
+      ; wready =
+          s_in.wready &: w_fifo_valid &: ~:w_owner_is_m1 |: ~:(w_fifo_valid &: s_in.wready)
       ; rvalid = s_in.rvalid &: r_fifo_valid &: ~:r_owner_is_m1
       ; rdata = s_in.rdata
       ; rresp = s_in.rresp
@@ -146,7 +160,11 @@ module Make (M0 : Axi4.S) (M1 : Axi4.S) (S : Axi4.S) = struct
     let m1_out =
       { M1.I.arready = m1_ar &: s_in.arready
       ; awready = m1_aw &: s_in.awready
-      ; wready = s_in.wready &: w_fifo_valid &: w_owner_is_m1
+      ; wready =
+          s_in.wready
+          &: w_fifo_valid
+          &: w_owner_is_m1
+          |: (~:w_fifo_valid &: ~:(m0.awvalid) &: s_in.wready)
       ; rvalid = s_in.rvalid &: r_fifo_valid &: r_owner_is_m1
       ; rdata = s_in.rdata
       ; rresp = s_in.rresp
@@ -170,7 +188,11 @@ module Make (M0 : Axi4.S) (M1 : Axi4.S) (S : Axi4.S) = struct
       ; awburst = mux2 m1_aw m1.awburst m0.awburst
       ; awid = m1_aw
       ; awvalid = m0_aw |: m1_aw
-      ; wvalid = w_fifo_valid &: mux2 w_owner_is_m1 m1.wvalid m0.wvalid
+      ; wvalid =
+          mux2
+            w_fifo_valid
+            (w_fifo_valid &: mux2 w_owner_is_m1 m1.wvalid m0.wvalid)
+            (m0.wvalid |: m1.wvalid)
       ; wdata = mux2 w_owner_is_m1 m1.wdata m0.wdata
       ; wstrb = mux2 w_owner_is_m1 m1.wstrb m0.wstrb
       ; wlast = mux2 w_owner_is_m1 m1.wlast m0.wlast

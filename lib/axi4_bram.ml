@@ -156,7 +156,8 @@ struct
             &: read_data
         ; rresp = zero 2
         ; wready = ~:should_push_back
-        ; awready = ~:should_push_back &: i.memory.wlast
+        ; awready =
+            ~:should_push_back &: memory.awvalid &: memory.wvalid &: i.memory.wlast
         ; arready = read_ready
         ; rlast = vdd
         }
