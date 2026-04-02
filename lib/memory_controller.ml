@@ -10,7 +10,8 @@ module Make
        module Instruction_config : Shared_access_ports_intf.Config
        module Data_config : Shared_access_ports_intf.Config
      end)
-    (Axi : Axi4.S) =
+    (Axi_in : Axi4.S)
+    (Axi_out : Axi4.S) =
 struct
   open M
 
@@ -27,16 +28,19 @@ struct
     end)
 
   module Cross_clocks = Cross_clock.Make (Memory_bus)
-  module Instruction = Shared_access_ports.Make (M.Instruction_config) (Memory_bus) (Axi)
-  module Data = Shared_access_ports.Make (M.Data_config) (Memory_bus) (Axi)
-  module Arbitrator = Axi4_arbitrator.Make (Axi) (Axi) (Axi)
+
+  module Instruction =
+    Shared_access_ports.Make (M.Instruction_config) (Memory_bus) (Axi_in)
+
+  module Data = Shared_access_ports.Make (M.Data_config) (Memory_bus) (Axi_in)
+  module Arbitrator = Axi4_arbitrator.Make (Axi_in) (Axi_in) (Axi_out)
 
   module I = struct
     type 'a t =
       { clock : 'a Clocking.t
       ; instruction : 'a Instruction.Request.t
       ; data : 'a Data.Request.t
-      ; memory : 'a Axi.I.t
+      ; memory : 'a Axi_out.I.t
       }
     [@@deriving hardcaml]
   end
@@ -45,7 +49,7 @@ struct
     type 'a t =
       { instruction : 'a Instruction.Response.t
       ; data : 'a Data.Response.t
-      ; memory : 'a Axi.O.t
+      ; memory : 'a Axi_out.O.t
       }
     [@@deriving hardcaml]
   end
@@ -56,7 +60,7 @@ struct
         scope
         ({ clock; instruction; data; memory } : _ I.t)
     =
-    let instruction_axi4 = Axi.I.Of_signal.wires () in
+    let instruction_axi4 = Axi_in.I.Of_signal.wires () in
     let instruction =
       Instruction.hierarchical
         ~capacity_in_bytes
@@ -65,7 +69,7 @@ struct
         scope
         { clock; request = instruction; memory = instruction_axi4 }
     in
-    let data_axi4 = Axi.I.Of_signal.wires () in
+    let data_axi4 = Axi_in.I.Of_signal.wires () in
     let data =
       Data.hierarchical
         ~capacity_in_bytes
@@ -79,8 +83,8 @@ struct
         scope
         { Arbitrator.I.clock; m0 = instruction.memory; m1 = data.memory; s_in = memory }
     in
-    Axi.I.Of_signal.(assign instruction_axi4 arb.m0_out);
-    Axi.I.Of_signal.(assign data_axi4 arb.m1_out);
+    Axi_in.I.Of_signal.(assign instruction_axi4 arb.m0_out);
+    Axi_in.I.Of_signal.(assign data_axi4 arb.m1_out);
     { O.instruction = instruction.response; data = data.response; memory = arb.s_out }
   ;;
 

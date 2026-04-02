@@ -10,18 +10,22 @@ module Make
        module Instruction_config : Shared_access_ports_intf.Config
        module Data_config : Shared_access_ports_intf.Config
      end)
-    (Axi : Axi4.S) : sig
+    (Axi_in : Axi4.S)
+    (Axi_out : Axi4.S) : sig
   module Memory_bus : Memory_bus_intf.S
   module Cross_clocks : module type of Cross_clock.Make (Memory_bus)
-  module Instruction : Shared_access_ports_intf.M(M.Instruction_config)(Memory_bus)(Axi).S
-  module Data : Shared_access_ports_intf.M(M.Data_config)(Memory_bus)(Axi).S
+
+  module Instruction :
+    Shared_access_ports_intf.M(M.Instruction_config)(Memory_bus)(Axi_in).S
+
+  module Data : Shared_access_ports_intf.M(M.Data_config)(Memory_bus)(Axi_in).S
 
   module I : sig
     type 'a t =
       { clock : 'a Clocking.t
       ; instruction : 'a Instruction.Request.t
       ; data : 'a Data.Request.t
-      ; memory : 'a Axi.I.t
+      ; memory : 'a Axi_out.I.t
       }
     [@@deriving hardcaml]
   end
@@ -30,7 +34,7 @@ module Make
     type 'a t =
       { instruction : 'a Instruction.Response.t
       ; data : 'a Data.Response.t
-      ; memory : 'a Axi.O.t
+      ; memory : 'a Axi_out.O.t
       }
     [@@deriving hardcaml]
   end

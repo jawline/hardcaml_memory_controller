@@ -17,14 +17,22 @@ struct
   let data_width = 32
   let data_bytes = data_width / 8
 
-  module Axi_config = struct
+  module Axi_in_config = struct
     let id_bits = 8
     let data_bits = if C.cache then data_width * 4 else data_width
     let addr_bits = address_bits_for capacity_in_bytes
     let burst_length_bits = 2
   end
 
-  module Axi4 = Axi4.Make (Axi_config)
+  module Axi_out_config = struct
+    let id_bits = 1
+    let data_bits = if C.cache then data_width * 4 else data_width
+    let addr_bits = address_bits_for capacity_in_bytes
+    let burst_length_bits = 2
+  end
+
+  module Axi4_in = Axi4.Make (Axi_in_config)
+  module Axi4_out = Axi4.Make (Axi_out_config)
 
   module Memory =
     Axi4_bram.Make
@@ -39,26 +47,36 @@ struct
       (struct
         let address_width = 32
         let capacity_in_bytes = capacity_in_bytes
-        let num_read_channels = C.num_channels
-        let num_write_channels = C.num_channels
         let data_bus_width = data_width
 
-        let cache_memory =
-          if C.cache
-          then
-            Some
-              (module struct
-                let line_width = 16
-                let num_cache_lines = 256
-                let num_read_channels = C.num_channels
-                let num_write_channels = C.num_channels
-                let register_responses = true
-                let register_axi_requests = true
-              end : Axi4_cache.Config)
-          else None
-        ;;
+        module Instruction_config = struct
+          let num_read_channels = C.num_channels
+          let num_write_channels = C.num_channels
+          let cache_memory = None
+        end
+
+        module Data_config = struct
+          let num_read_channels = C.num_channels
+          let num_write_channels = C.num_channels
+
+          let cache_memory =
+            if C.cache
+            then
+              Some
+                (module struct
+                  let line_width = 16
+                  let num_cache_lines = 256
+                  let num_read_channels = C.num_channels
+                  let num_write_channels = C.num_channels
+                  let register_responses = true
+                  let register_axi_requests = true
+                end : Axi4_cache.Config)
+            else None
+          ;;
+        end
       end)
-      (Axi4)
+      (Axi4_in)
+      (Axi4_out)
 
   let addr_bits = Memory_controller.Memory_bus.address_width
 
@@ -108,13 +126,16 @@ struct
       Step.cycle
         h
         { Step.input_hold with
-          write_to_controller =
-            List.mapi
-              ~f:(fun i v -> if i = ch then { v with valid = gnd } else v)
-              Step.input_hold.write_to_controller
+          data =
+            { Step.input_hold.data with
+              write_to_controller =
+                List.mapi
+                  ~f:(fun i v -> if i = ch then { v with valid = gnd } else v)
+                  Step.input_hold.data.write_to_controller
+            }
         }
     in
-    let ch_rx = List.nth_exn o.before_edge.write_response ch in
+    let ch_rx = List.nth_exn o.before_edge.data.write_response ch in
     if to_bool ch_rx.valid then () else wait_for_write_ack ~timeout:(timeout - 1) ~ch h
   ;;
 
@@ -124,24 +145,27 @@ struct
       Step.cycle
         h
         { Step.input_hold with
-          write_to_controller =
-            List.mapi
-              ~f:(fun i v ->
-                if i = ch
-                then
-                  { Memory_controller.Memory_bus.Write_bus.Source.valid = vdd
-                  ; data =
-                      { address = of_unsigned_int ~width:addr_bits address
-                      ; write_data = of_unsigned_int ~width:32 value
-                      ; wstrb = ones 4
+          data =
+            { Step.input_hold.data with
+              write_to_controller =
+                List.mapi
+                  ~f:(fun i v ->
+                    if i = ch
+                    then
+                      { Memory_controller.Memory_bus.Write_bus.Source.valid = vdd
+                      ; data =
+                          { address = of_unsigned_int ~width:addr_bits address
+                          ; write_data = of_unsigned_int ~width:32 value
+                          ; wstrb = ones 4
+                          }
                       }
-                  }
-                else v)
-              Step.input_hold.write_to_controller
+                    else v)
+                  Step.input_hold.data.write_to_controller
+            }
         }
     in
-    let ch_tx = List.nth_exn o.before_edge.write_to_controller ch in
-    let ch_rx = List.nth_exn o.before_edge.write_response ch in
+    let ch_tx = List.nth_exn o.before_edge.data.write_to_controller ch in
+    let ch_rx = List.nth_exn o.before_edge.data.write_response ch in
     if to_bool ch_tx.ready
     then (
       let () =
@@ -151,10 +175,13 @@ struct
             Step.cycle
               h
               { Step.input_hold with
-                write_to_controller =
-                  List.mapi
-                    ~f:(fun i v -> if i = ch then { v with valid = gnd } else v)
-                    Step.input_hold.write_to_controller
+                data =
+                  { Step.input_hold.data with
+                    write_to_controller =
+                      List.mapi
+                        ~f:(fun i v -> if i = ch then { v with valid = gnd } else v)
+                        Step.input_hold.data.write_to_controller
+                  }
               }
           in
           ())
@@ -172,20 +199,23 @@ struct
         Step.cycle
           h
           { Step.input_hold with
-            read_to_controller =
-              List.mapi
-                ~f:(fun i v ->
-                  if i = ch
-                  then
-                    { Memory_controller.Memory_bus.Read_bus.Source.valid = vdd
-                    ; data = { address = of_unsigned_int ~width:addr_bits address }
-                    }
-                  else v)
-                Step.input_hold.read_to_controller
+            data =
+              { Step.input_hold.data with
+                read_to_controller =
+                  List.mapi
+                    ~f:(fun i v ->
+                      if i = ch
+                      then
+                        { Memory_controller.Memory_bus.Read_bus.Source.valid = vdd
+                        ; data = { address = of_unsigned_int ~width:addr_bits address }
+                        }
+                      else v)
+                    Step.input_hold.data.read_to_controller
+              }
           }
       in
       cached := Array.get shared_mem address;
-      let ch_tx = List.nth_exn o.before_edge.read_to_controller ch in
+      let ch_tx = List.nth_exn o.before_edge.data.read_to_controller ch in
       if timeout = 0 then raise_s [%message "BUG: Timeout (Read)" (ch : int)];
       if to_bool ch_tx.ready then () else wait_for_ready (timeout - 1)
     in
@@ -195,13 +225,16 @@ struct
         Step.cycle
           h
           { Step.input_hold with
-            read_to_controller =
-              List.mapi
-                ~f:(fun i v -> if i = ch then { v with valid = gnd } else v)
-                Step.input_hold.read_to_controller
+            data =
+              { Step.input_hold.data with
+                read_to_controller =
+                  List.mapi
+                    ~f:(fun i v -> if i = ch then { v with valid = gnd } else v)
+                    Step.input_hold.data.read_to_controller
+              }
           }
       in
-      let ch_rx = List.nth_exn o.before_edge.read_response ch in
+      let ch_rx = List.nth_exn o.before_edge.data.read_response ch in
       if to_bool ch_rx.valid
       then to_int_trunc ch_rx.value.read_data
       else wait_for_data (timeout - 1)

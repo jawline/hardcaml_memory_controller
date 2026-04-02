@@ -11,14 +11,22 @@ module Make (M : sig
     module Data_config : Shared_access_ports_intf.Config
   end) =
 struct
-  module Axi_config = struct
+  module Axi_in_config = struct
     let id_bits = 8
     let data_bits = M.data_bus_width
     let addr_bits = address_bits_for M.capacity_in_bytes
     let burst_length_bits = 1
   end
 
-  module Axi4 = Axi4.Make (Axi_config)
+  module Axi_out_config = struct
+    let id_bits = 1
+    let data_bits = M.data_bus_width
+    let addr_bits = address_bits_for M.capacity_in_bytes
+    let burst_length_bits = 1
+  end
+
+  module Axi4_in = Axi4.Make (Axi_in_config)
+  module Axi4_out = Axi4.Make (Axi_out_config)
 
   module Memory =
     Axi4_bram.Make
@@ -26,9 +34,9 @@ struct
         let capacity_in_bytes = M.capacity_in_bytes
         let synthetic_pushback = 0
       end)
-      (Axi4)
+      (Axi4_out)
 
-  module Memory_controller = Memory_controller.Make (M) (Axi4)
+  module Memory_controller = Memory_controller.Make (M) (Axi4_in) (Axi4_out)
   include Memory_controller
 
   module I = struct
@@ -55,7 +63,7 @@ struct
         scope
         ({ clock; instruction; data } : _ I.t)
     =
-    let memory = Axi4.O.Of_signal.wires () in
+    let memory = Axi4_out.O.Of_signal.wires () in
     let mem =
       Memory.hierarchical ~build_mode ~read_latency scope { Memory.I.clock; memory }
     in
@@ -66,7 +74,7 @@ struct
         scope
         { Memory_controller.I.clock; instruction; data; memory = mem.memory }
     in
-    Axi4.O.Of_signal.assign memory core.memory;
+    Axi4_out.O.Of_signal.assign memory core.memory;
     { O.instruction = core.instruction; data = core.data }
   ;;
 
