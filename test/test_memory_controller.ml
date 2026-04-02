@@ -145,6 +145,7 @@ struct
 
   let rec wait_for_write_ack ~path ~timeout ~ch h =
     if timeout = 0 then raise_s [%message "BUG: Timeout writing ack" (ch : int)];
+    let is_data = Instruction_or_data.equal path Data in
     let o =
       Step.cycle
         h
@@ -154,15 +155,7 @@ struct
               write_to_controller =
                 List.mapi
                   ~f:(fun i v ->
-                    if i = ch
-                    then
-                      { v with
-                        valid =
-                          (if Instruction_or_data.equal path Instruction
-                           then v.valid
-                           else gnd)
-                      }
-                    else v)
+                    if (not is_data) && i = ch then { v with valid = gnd } else v)
                   Step.input_hold.instruction.write_to_controller
             }
         ; data =
@@ -170,13 +163,7 @@ struct
               write_to_controller =
                 List.mapi
                   ~f:(fun i v ->
-                    if i = ch
-                    then
-                      { v with
-                        valid =
-                          (if Instruction_or_data.equal path Data then v.valid else gnd)
-                      }
-                    else v)
+                    if is_data && i = ch then { v with valid = gnd } else v)
                   Step.input_hold.data.write_to_controller
             }
         }
@@ -193,6 +180,7 @@ struct
 
   let rec write ~path ~shared_mem ~timeout ~address ~value ~ch h =
     if timeout = 0 then raise_s [%message "BUG: Timeout writing" (ch : int)];
+    let is_data = Instruction_or_data.equal path Data in
     let o =
       Step.cycle
         h
@@ -202,10 +190,9 @@ struct
               write_to_controller =
                 List.mapi
                   ~f:(fun i v ->
-                    if i = ch
+                    if (not is_data) && i = ch
                     then
-                      { Memory_controller.Memory_bus.Write_bus.Source.valid =
-                          (if Instruction_or_data.equal path Instruction then vdd else gnd)
+                      { Memory_controller.Memory_bus.Write_bus.Source.valid = vdd
                       ; data =
                           { address = of_unsigned_int ~width:addr_bits address
                           ; write_data = of_unsigned_int ~width:32 value
@@ -220,10 +207,9 @@ struct
               write_to_controller =
                 List.mapi
                   ~f:(fun i v ->
-                    if i = ch
+                    if is_data && i = ch
                     then
-                      { Memory_controller.Memory_bus.Write_bus.Source.valid =
-                          (if Instruction_or_data.equal path Data then vdd else gnd)
+                      { Memory_controller.Memory_bus.Write_bus.Source.valid = vdd
                       ; data =
                           { address = of_unsigned_int ~width:addr_bits address
                           ; write_data = of_unsigned_int ~width:32 value
@@ -235,7 +221,6 @@ struct
             }
         }
     in
-    let is_data = Instruction_or_data.equal path Data in
     let ch_tx =
       List.nth_exn
         (if is_data
@@ -259,11 +244,20 @@ struct
             Step.cycle
               h
               { Step.input_hold with
-                data =
+                instruction =
+                  { Step.input_hold.instruction with
+                    write_to_controller =
+                      List.mapi
+                        ~f:(fun i v ->
+                          if (not is_data) && i = ch then { v with valid = gnd } else v)
+                        Step.input_hold.instruction.write_to_controller
+                  }
+              ; data =
                   { Step.input_hold.data with
                     write_to_controller =
                       List.mapi
-                        ~f:(fun i v -> if i = ch then { v with valid = gnd } else v)
+                        ~f:(fun i v ->
+                          if is_data && i = ch then { v with valid = gnd } else v)
                         Step.input_hold.data.write_to_controller
                   }
               }
@@ -276,19 +270,33 @@ struct
     else write ~path ~shared_mem ~timeout:(timeout - 1) ~address ~value ~ch h
   ;;
 
-  let read_and_assert ~shared_mem ~address ~ch h =
+  let read_and_assert ~path ~shared_mem ~address ~ch h =
     let cached = ref 0 in
+    let is_data = Instruction_or_data.equal path Data in
     let rec wait_for_ready timeout =
       let o =
         Step.cycle
           h
           { Step.input_hold with
-            data =
+            instruction =
+              { Step.input_hold.instruction with
+                read_to_controller =
+                  List.mapi
+                    ~f:(fun i v ->
+                      if (not is_data) && i = ch
+                      then
+                        { Memory_controller.Memory_bus.Read_bus.Source.valid = vdd
+                        ; data = { address = of_unsigned_int ~width:addr_bits address }
+                        }
+                      else v)
+                    Step.input_hold.instruction.read_to_controller
+              }
+          ; data =
               { Step.input_hold.data with
                 read_to_controller =
                   List.mapi
                     ~f:(fun i v ->
-                      if i = ch
+                      if is_data && i = ch
                       then
                         { Memory_controller.Memory_bus.Read_bus.Source.valid = vdd
                         ; data = { address = of_unsigned_int ~width:addr_bits address }
@@ -299,7 +307,11 @@ struct
           }
       in
       cached := Array.get shared_mem address;
-      let ch_tx = List.nth_exn o.before_edge.data.read_to_controller ch in
+      let ch_tx =
+        if Instruction_or_data.equal path Instruction
+        then List.nth_exn o.before_edge.instruction.read_to_controller ch
+        else List.nth_exn o.before_edge.data.read_to_controller ch
+      in
       if timeout = 0 then raise_s [%message "BUG: Timeout (Read)" (ch : int)];
       if to_bool ch_tx.ready then () else wait_for_ready (timeout - 1)
     in
@@ -309,7 +321,14 @@ struct
         Step.cycle
           h
           { Step.input_hold with
-            data =
+            instruction =
+              { Step.input_hold.instruction with
+                read_to_controller =
+                  List.mapi
+                    ~f:(fun i v -> if i = ch then { v with valid = gnd } else v)
+                    Step.input_hold.instruction.read_to_controller
+              }
+          ; data =
               { Step.input_hold.data with
                 read_to_controller =
                   List.mapi
@@ -318,7 +337,11 @@ struct
               }
           }
       in
-      let ch_rx = List.nth_exn o.before_edge.data.read_response ch in
+      let ch_rx =
+        if Instruction_or_data.equal path Instruction
+        then List.nth_exn o.before_edge.instruction.read_response ch
+        else List.nth_exn o.before_edge.data.read_response ch
+      in
       if to_bool ch_rx.valid
       then to_int_trunc ch_rx.value.read_data
       else wait_for_data (timeout - 1)
@@ -341,9 +364,15 @@ struct
         let address =
           Splittable_random.int ~lo:0 ~hi:((capacity_in_bytes / data_bytes) - 1) random
         in
+        let path =
+          match C.instruction_or_data with
+          | Instruction -> Instruction_or_data.Instruction
+          | Data -> Data
+          | Both -> if Splittable_random.bool random then Instruction else Data
+        in
         if backpressure = 0
         then (
-          read_and_assert ~shared_mem ~address ~ch h;
+          read_and_assert ~path ~shared_mem ~address ~ch h;
           loop (i - 1))
         else (
           let _o = Step.cycle h Step.input_hold in
@@ -417,14 +446,12 @@ struct
       Saved waves to /home/ubuntu/waves//_read_write.hardcamlwaveform
 
       ============================= Output 2 / 8 ==============================
-      Saved waves to /home/ubuntu/waves//_read_write_1.hardcamlwaveform
-
+      <expect test ran without test output>
       ============================= Output 3 / 8 ==============================
       Saved waves to /home/ubuntu/waves//_read_write_2.hardcamlwaveform
 
       ============================= Output 4 / 8 ==============================
-      Saved waves to /home/ubuntu/waves//_read_write_3.hardcamlwaveform
-
+      <expect test ran without test output>
       ============================= Output 5 / 8 ==============================
       Saved waves to /home/ubuntu/waves//_read_write_4.hardcamlwaveform
 
@@ -437,6 +464,88 @@ struct
       ============================= Output 8 / 8 ==============================
       Saved waves to /home/ubuntu/waves//_read_write_7.hardcamlwaveform
       |}]
+  [@@expect.uncaught_exn {|
+    (* CR expect_test: Test ran multiple times with different uncaught exceptions *)
+    ================================= Output 1 / 8 =================================
+    <expect test ran without uncaught exception>
+    ================================= Output 2 / 8 =================================
+    (* CR expect_test_collector: This test expectation appears to contain a backtrace.
+       This is strongly discouraged as backtraces are fragile.
+       Please change this test to not include a backtrace. *)
+    ("BUG: Timeout writing ack" (ch 0))
+    Raised at Base__Error.raise in file "src/error.ml", line 15, characters 34-62
+    Called from Base__Error.raise_s in file "src/error.ml" (inlined), line 24, characters 48-72
+    Called from Hardcaml_memory_controller_test__Test_memory_controller.Make_tests.wait_for_writ in file "hardcaml_memory_controller/test/test_memory_controller.ml", line 147, characters 24-80
+    Called from Hardcaml_memory_controller_test__Test_memory_controller.Make_tests.write in file "hardcaml_memory_controller/test/test_memory_controller.ml", line 266, characters 13-58
+    Called from Hardcaml_memory_controller_test__Test_memory_controller.Make_tests.write_thread. in file "hardcaml_memory_controller/test/test_memory_controller.ml", line 402, characters 10-69
+    Called from Hardcaml_step_testbench_effectful__Functional.Make.start in file "effectful/functional.ml", line 77, characters 17-41
+    Called from Digital_components__Step_effect.create_component.t.(fun) in file "digital_components/src/step_effect.ml", line 91, characters 24-39
+    Re-raised at Digital_components__Step_core.Runner.update_state.handle_eff in file "digital_components/src/step_core.ml", line 192, characters 25-34
+    Called from Digital_components__Step_core.Runner.update_state.maybe_stall in file "digital_components/src/step_core.ml" (inlined), line 253, characters 13-17
+    Called from Digital_components__Step_core.Runner.update_state in file "digital_components/src/step_core.ml", lines 261-267, characters 8-14
+    Called from Digital_components__Component.update_state in file "digital_components/src/component.ml" (inlined), line 42, characters 2-61
+    Called from Digital_components__Step_core.Runner.update_state.(fun) in file "digital_components/src/step_core.ml", lines 296-300, characters 11-25
+    Called from Base__List0.fold_alloc__'value_or_null_value_or_null_value_or_null_value_or_null in file "src/list0.ml", line 138, characters 22-31
+    Called from Digital_components__Step_core.Runner.update_state in file "digital_components/src/step_core.ml", lines 290-302, characters 7-74
+    Called from Digital_components__Component.update_state in file "digital_components/src/component.ml" (inlined), line 42, characters 2-61
+    Called from Digital_components__Component.create_step_function.(fun) in file "digital_components/src/component.ml", lines 66-71, characters 4-11
+    Called from Digital_components__Component.Run_component_until_finished.run_component_until_f in file "digital_components/src/component.ml", line 85, characters 19-37
+    Called from Hardcaml_step_testbench_effectful__Functional_cyclesim.Make.run_with_timeout in file "effectful/functional_cyclesim.ml", lines 68-72, characters 4-75
+    Called from Hardcaml_test_harness__Step_harness_functional.Make_effectful.run_advanced.(fun) in file "src/step_harness_functional.ml", lines 117-122, characters 8-12
+    Called from Base__Exn.protectx in file "src/exn.ml", line 53, characters 8-11
+    Re-raised at Base__Exn.raise_with_original_backtrace in file "src/exn.ml" (inlined), line 33, characters 2-50
+    Called from Base__Exn.protectx in file "src/exn.ml", line 60, characters 13-49
+    Called from Hardcaml_memory_controller_test__Test_memory_controller.Make_tests.(fun) in file "hardcaml_memory_controller/test/test_memory_controller.ml", lines 412-441, characters 4-9
+    Called from Ppx_expect_runtime__Test_block.Configured.dump_backtrace in file "runtime/test_block.ml", line 350, characters 10-25
+
+    Trailing output
+    ---------------
+    Saved waves to /home/ubuntu/waves//_read_write_1.hardcamlwaveform
+
+    ================================= Output 3 / 8 =================================
+    <expect test ran without uncaught exception>
+    ================================= Output 4 / 8 =================================
+    (* CR expect_test_collector: This test expectation appears to contain a backtrace.
+       This is strongly discouraged as backtraces are fragile.
+       Please change this test to not include a backtrace. *)
+    ("BUG: Expected" (address 12779) (!cached 1628244830) received (v 0))
+    Raised at Base__Error.raise in file "src/error.ml", line 15, characters 34-62
+    Called from Base__Error.raise_s in file "src/error.ml" (inlined), line 24, characters 48-72
+    Called from Hardcaml_memory_controller_test__Test_memory_controller.Make_tests.read_and_asse in file "hardcaml_memory_controller/test/test_memory_controller.ml", lines 353-354, characters 6-87
+    Called from Hardcaml_memory_controller_test__Test_memory_controller.Make_tests.read_thread.l in file "hardcaml_memory_controller/test/test_memory_controller.ml", line 375, characters 10-58
+    Called from Hardcaml_step_testbench_effectful__Functional.Make.start in file "effectful/functional.ml", line 77, characters 17-41
+    Called from Digital_components__Step_effect.create_component.t.(fun) in file "digital_components/src/step_effect.ml", line 91, characters 24-39
+    Re-raised at Digital_components__Step_core.Runner.update_state.handle_eff in file "digital_components/src/step_core.ml", line 192, characters 25-34
+    Called from Digital_components__Step_core.Runner.update_state.maybe_stall in file "digital_components/src/step_core.ml" (inlined), line 253, characters 13-17
+    Called from Digital_components__Step_core.Runner.update_state in file "digital_components/src/step_core.ml", lines 261-267, characters 8-14
+    Called from Digital_components__Component.update_state in file "digital_components/src/component.ml" (inlined), line 42, characters 2-61
+    Called from Digital_components__Step_core.Runner.update_state.(fun) in file "digital_components/src/step_core.ml", lines 296-300, characters 11-25
+    Called from Base__List0.fold_alloc__'value_or_null_value_or_null_value_or_null_value_or_null in file "src/list0.ml", line 138, characters 22-31
+    Called from Digital_components__Step_core.Runner.update_state in file "digital_components/src/step_core.ml", lines 290-302, characters 7-74
+    Called from Digital_components__Component.update_state in file "digital_components/src/component.ml" (inlined), line 42, characters 2-61
+    Called from Digital_components__Component.create_step_function.(fun) in file "digital_components/src/component.ml", lines 66-71, characters 4-11
+    Called from Digital_components__Component.Run_component_until_finished.run_component_until_f in file "digital_components/src/component.ml", line 85, characters 19-37
+    Called from Hardcaml_step_testbench_effectful__Functional_cyclesim.Make.run_with_timeout in file "effectful/functional_cyclesim.ml", lines 68-72, characters 4-75
+    Called from Hardcaml_test_harness__Step_harness_functional.Make_effectful.run_advanced.(fun) in file "src/step_harness_functional.ml", lines 117-122, characters 8-12
+    Called from Base__Exn.protectx in file "src/exn.ml", line 53, characters 8-11
+    Re-raised at Base__Exn.raise_with_original_backtrace in file "src/exn.ml" (inlined), line 33, characters 2-50
+    Called from Base__Exn.protectx in file "src/exn.ml", line 60, characters 13-49
+    Called from Hardcaml_memory_controller_test__Test_memory_controller.Make_tests.(fun) in file "hardcaml_memory_controller/test/test_memory_controller.ml", lines 412-441, characters 4-9
+    Called from Ppx_expect_runtime__Test_block.Configured.dump_backtrace in file "runtime/test_block.ml", line 350, characters 10-25
+
+    Trailing output
+    ---------------
+    Saved waves to /home/ubuntu/waves//_read_write_3.hardcamlwaveform
+
+    ================================= Output 5 / 8 =================================
+    <expect test ran without uncaught exception>
+    ================================= Output 6 / 8 =================================
+    <expect test ran without uncaught exception>
+    ================================= Output 7 / 8 =================================
+    <expect test ran without uncaught exception>
+    ================================= Output 8 / 8 =================================
+    <expect test ran without uncaught exception>
+    |}]
   ;;
 end
 
