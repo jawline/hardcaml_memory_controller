@@ -107,9 +107,8 @@ module Make (M0 : Axi4.S) (M1 : Axi4.S) (S : Axi4.S) = struct
      emitting a 1 bit (M0 or M1) ID output. The module uses Fifos to coordinate
      the read, write, and response channels so we know which side we should
      handle next. *)
-  let create _scope (inputs : _ I.t) =
-    let { I.m0; m1; s_in; _ } = inputs in
-    let w_and_b_have_capacity = wire 1 in
+  let create scope (({ I.m0; m1; s_in; _ } as inputs)  : _ I.t) =
+    let%hw w_and_b_have_capacity = wire 1 in
     (* We keep metadata fifos so that we can support multiple AXI4 transactions
     in flight while arbitrating. M0 always gets priority. *)
     (* --- READ CHANNEL --- *)
@@ -120,13 +119,16 @@ module Make (M0 : Axi4.S) (M1 : Axi4.S) (S : Axi4.S) = struct
     let w_owner_is_m1, _w_orig_id, w_fifo_valid, w_fifo_full =
       w_fifo ~can_write:w_and_b_have_capacity inputs
     in
-    let m0_aw = m0.awvalid &: ~:w_and_b_have_capacity in
-    let m1_aw = ~:(m0.awvalid) &: m1.awvalid &: ~:w_and_b_have_capacity in
+    let%hw m0_aw = m0.awvalid &:  w_and_b_have_capacity in
+    let%hw m1_aw = ~:(m0.awvalid) &: m1.awvalid &: w_and_b_have_capacity in
     (* --- WRITE RESPONSE CHANNEL --- *)
     let b_owner_is_m1, b_orig_id, b_fifo_valid, b_fifo_full =
       b_fifo ~can_write:w_and_b_have_capacity inputs
     in
     w_and_b_have_capacity <-- (~:w_fifo_full &: ~:b_fifo_full);
+    let%hw r_fifo_valid in
+    let%hw w_fifo_valid in
+    let%hw b_fifo_valid in 
     let m0_out =
       { M0.I.arready = m0_ar &: s_in.arready
       ; awready = m0_aw &: s_in.awready
@@ -181,6 +183,6 @@ module Make (M0 : Axi4.S) (M1 : Axi4.S) (S : Axi4.S) = struct
 
   let hierarchical (scope : Scope.t) (input : Signal.t I.t) =
     let module H = Hierarchy.In_scope (I) (O) in
-    H.hierarchical ~scope ~name:"cemory_controller" create input
+    H.hierarchical ~scope ~name:"axi4_arbitrator" create input
   ;;
 end

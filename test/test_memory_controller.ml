@@ -334,33 +334,277 @@ struct
       List.iter ~f:(fun t -> Step.wait_for h t) read_threads;
       List.iter ~f:(fun t -> Step.wait_for h t) write_threads;
       ());
-    [%expect
-      {|
-      (* CR expect_test: Test ran multiple times with different test outputs *)
-      ============================= Output 1 / 8 ==============================
-      Saved waves to /var/home/blake/waves//_read_write.hardcamlwaveform
+    [%expect.unreachable]
+  [@@expect.uncaught_exn {|
+    (* CR expect_test: Test ran multiple times with different uncaught exceptions *)
+    ================================= Output 1 / 8 =================================
+    (* CR expect_test_collector: This test expectation appears to contain a backtrace.
+       This is strongly discouraged as backtraces are fragile.
+       Please change this test to not include a backtrace. *)
+    ("BUG: Expected" (address 14632) (!cached 3549592683) received (v 0))
+    Raised at Base__Error.raise in file "src/error.ml", line 15, characters 34-62
+    Called from Base__Error.raise_s in file "src/error.ml" (inlined), line 24, characters 48-72
+    Called from Hardcaml_memory_controller_test__Test_memory_controller.Make_tests.read_and_assert in file "hardcaml_memory_controller/test/test_memory_controller.ml", lines 260-261, characters 6-87
+    Called from Hardcaml_memory_controller_test__Test_memory_controller.Make_tests.read_thread.loop in file "hardcaml_memory_controller/test/test_memory_controller.ml", line 276, characters 10-52
+    Called from Hardcaml_step_testbench_effectful__Functional.Make.start in file "effectful/functional.ml", line 77, characters 17-41
+    Called from Digital_components__Step_effect.create_component.t.(fun) in file "digital_components/src/step_effect.ml", line 91, characters 24-39
+    Re-raised at Digital_components__Step_core.Runner.update_state.handle_eff in file "digital_components/src/step_core.ml", line 192, characters 25-34
+    Called from Digital_components__Step_core.Runner.update_state.maybe_stall in file "digital_components/src/step_core.ml" (inlined), line 253, characters 13-17
+    Called from Digital_components__Step_core.Runner.update_state in file "digital_components/src/step_core.ml", lines 261-267, characters 8-14
+    Called from Digital_components__Component.update_state in file "digital_components/src/component.ml" (inlined), line 42, characters 2-61
+    Called from Digital_components__Step_core.Runner.update_state.(fun) in file "digital_components/src/step_core.ml", lines 296-300, characters 11-25
+    Called from Base__List0.fold_alloc__'value_or_null_value_or_null_value_or_null_value_or_null'__'value_or_null_float32'__stack.loop in file "src/list0.ml", line 138, characters 22-31
+    Called from Digital_components__Step_core.Runner.update_state in file "digital_components/src/step_core.ml", lines 290-302, characters 7-74
+    Called from Digital_components__Component.update_state in file "digital_components/src/component.ml" (inlined), line 42, characters 2-61
+    Called from Digital_components__Component.create_step_function.(fun) in file "digital_components/src/component.ml", lines 66-71, characters 4-11
+    Called from Digital_components__Component.Run_component_until_finished.run_component_until_finished.loop in file "digital_components/src/component.ml", line 85, characters 19-37
+    Called from Hardcaml_step_testbench_effectful__Functional_cyclesim.Make.run_with_timeout in file "effectful/functional_cyclesim.ml", lines 68-72, characters 4-75
+    Called from Hardcaml_test_harness__Step_harness_functional.Make_effectful.run_advanced.(fun) in file "src/step_harness_functional.ml", lines 117-122, characters 8-12
+    Called from Base__Exn.protectx in file "src/exn.ml", line 53, characters 8-11
+    Re-raised at Base__Exn.raise_with_original_backtrace in file "src/exn.ml" (inlined), line 33, characters 2-50
+    Called from Base__Exn.protectx in file "src/exn.ml", line 60, characters 13-49
+    Called from Hardcaml_memory_controller_test__Test_memory_controller.Make_tests.(fun) in file "hardcaml_memory_controller/test/test_memory_controller.ml", lines 307-336, characters 4-9
+    Called from Ppx_expect_runtime__Test_block.Configured.dump_backtrace in file "runtime/test_block.ml", line 350, characters 10-25
 
-      ============================= Output 2 / 8 ==============================
-      Saved waves to /var/home/blake/waves//_read_write_1.hardcamlwaveform
+    Trailing output
+    ---------------
+    Saved waves to /var/home/blake/waves//_read_write.hardcamlwaveform
 
-      ============================= Output 3 / 8 ==============================
-      Saved waves to /var/home/blake/waves//_read_write_2.hardcamlwaveform
+    ================================= Output 2 / 8 =================================
+    (* CR expect_test_collector: This test expectation appears to contain a backtrace.
+       This is strongly discouraged as backtraces are fragile.
+       Please change this test to not include a backtrace. *)
+    ("BUG: Expected" (address 5591) (!cached 1336681586) received (v 1514026782))
+    Raised at Base__Error.raise in file "src/error.ml", line 15, characters 34-62
+    Called from Base__Error.raise_s in file "src/error.ml" (inlined), line 24, characters 48-72
+    Called from Hardcaml_memory_controller_test__Test_memory_controller.Make_tests.read_and_assert in file "hardcaml_memory_controller/test/test_memory_controller.ml", lines 260-261, characters 6-87
+    Called from Hardcaml_memory_controller_test__Test_memory_controller.Make_tests.read_thread.loop in file "hardcaml_memory_controller/test/test_memory_controller.ml", line 276, characters 10-52
+    Called from Hardcaml_step_testbench_effectful__Functional.Make.start in file "effectful/functional.ml", line 77, characters 17-41
+    Called from Digital_components__Step_effect.create_component.t.(fun) in file "digital_components/src/step_effect.ml", line 91, characters 24-39
+    Re-raised at Digital_components__Step_core.Runner.update_state.handle_eff in file "digital_components/src/step_core.ml", line 192, characters 25-34
+    Called from Digital_components__Step_core.Runner.update_state.maybe_stall in file "digital_components/src/step_core.ml" (inlined), line 253, characters 13-17
+    Called from Digital_components__Step_core.Runner.update_state in file "digital_components/src/step_core.ml", lines 261-267, characters 8-14
+    Called from Digital_components__Component.update_state in file "digital_components/src/component.ml" (inlined), line 42, characters 2-61
+    Called from Digital_components__Step_core.Runner.update_state.(fun) in file "digital_components/src/step_core.ml", lines 296-300, characters 11-25
+    Called from Base__List0.fold_alloc__'value_or_null_value_or_null_value_or_null_value_or_null'__'value_or_null_float32'__stack.loop in file "src/list0.ml", line 138, characters 22-31
+    Called from Digital_components__Step_core.Runner.update_state in file "digital_components/src/step_core.ml", lines 290-302, characters 7-74
+    Called from Digital_components__Component.update_state in file "digital_components/src/component.ml" (inlined), line 42, characters 2-61
+    Called from Digital_components__Component.create_step_function.(fun) in file "digital_components/src/component.ml", lines 66-71, characters 4-11
+    Called from Digital_components__Component.Run_component_until_finished.run_component_until_finished.loop in file "digital_components/src/component.ml", line 85, characters 19-37
+    Called from Hardcaml_step_testbench_effectful__Functional_cyclesim.Make.run_with_timeout in file "effectful/functional_cyclesim.ml", lines 68-72, characters 4-75
+    Called from Hardcaml_test_harness__Step_harness_functional.Make_effectful.run_advanced.(fun) in file "src/step_harness_functional.ml", lines 117-122, characters 8-12
+    Called from Base__Exn.protectx in file "src/exn.ml", line 53, characters 8-11
+    Re-raised at Base__Exn.raise_with_original_backtrace in file "src/exn.ml" (inlined), line 33, characters 2-50
+    Called from Base__Exn.protectx in file "src/exn.ml", line 60, characters 13-49
+    Called from Hardcaml_memory_controller_test__Test_memory_controller.Make_tests.(fun) in file "hardcaml_memory_controller/test/test_memory_controller.ml", lines 307-336, characters 4-9
+    Called from Ppx_expect_runtime__Test_block.Configured.dump_backtrace in file "runtime/test_block.ml", line 350, characters 10-25
 
-      ============================= Output 4 / 8 ==============================
-      Saved waves to /var/home/blake/waves//_read_write_3.hardcamlwaveform
+    Trailing output
+    ---------------
+    Saved waves to /var/home/blake/waves//_read_write_1.hardcamlwaveform
 
-      ============================= Output 5 / 8 ==============================
-      Saved waves to /var/home/blake/waves//_read_write_4.hardcamlwaveform
+    ================================= Output 3 / 8 =================================
+    (* CR expect_test_collector: This test expectation appears to contain a backtrace.
+       This is strongly discouraged as backtraces are fragile.
+       Please change this test to not include a backtrace. *)
+    ("BUG: Expected" (address 1734) (!cached 2445392627) received (v 0))
+    Raised at Base__Error.raise in file "src/error.ml", line 15, characters 34-62
+    Called from Base__Error.raise_s in file "src/error.ml" (inlined), line 24, characters 48-72
+    Called from Hardcaml_memory_controller_test__Test_memory_controller.Make_tests.read_and_assert in file "hardcaml_memory_controller/test/test_memory_controller.ml", lines 260-261, characters 6-87
+    Called from Hardcaml_memory_controller_test__Test_memory_controller.Make_tests.read_thread.loop in file "hardcaml_memory_controller/test/test_memory_controller.ml", line 276, characters 10-52
+    Called from Hardcaml_step_testbench_effectful__Functional.Make.start in file "effectful/functional.ml", line 77, characters 17-41
+    Called from Digital_components__Step_effect.create_component.t.(fun) in file "digital_components/src/step_effect.ml", line 91, characters 24-39
+    Re-raised at Digital_components__Step_core.Runner.update_state.handle_eff in file "digital_components/src/step_core.ml", line 192, characters 25-34
+    Called from Digital_components__Step_core.Runner.update_state.maybe_stall in file "digital_components/src/step_core.ml" (inlined), line 253, characters 13-17
+    Called from Digital_components__Step_core.Runner.update_state in file "digital_components/src/step_core.ml", lines 261-267, characters 8-14
+    Called from Digital_components__Component.update_state in file "digital_components/src/component.ml" (inlined), line 42, characters 2-61
+    Called from Digital_components__Step_core.Runner.update_state.(fun) in file "digital_components/src/step_core.ml", lines 296-300, characters 11-25
+    Called from Base__List0.fold_alloc__'value_or_null_value_or_null_value_or_null_value_or_null'__'value_or_null_float32'__stack.loop in file "src/list0.ml", line 138, characters 22-31
+    Called from Digital_components__Step_core.Runner.update_state in file "digital_components/src/step_core.ml", lines 290-302, characters 7-74
+    Called from Digital_components__Component.update_state in file "digital_components/src/component.ml" (inlined), line 42, characters 2-61
+    Called from Digital_components__Component.create_step_function.(fun) in file "digital_components/src/component.ml", lines 66-71, characters 4-11
+    Called from Digital_components__Component.Run_component_until_finished.run_component_until_finished.loop in file "digital_components/src/component.ml", line 85, characters 19-37
+    Called from Hardcaml_step_testbench_effectful__Functional_cyclesim.Make.run_with_timeout in file "effectful/functional_cyclesim.ml", lines 68-72, characters 4-75
+    Called from Hardcaml_test_harness__Step_harness_functional.Make_effectful.run_advanced.(fun) in file "src/step_harness_functional.ml", lines 117-122, characters 8-12
+    Called from Base__Exn.protectx in file "src/exn.ml", line 53, characters 8-11
+    Re-raised at Base__Exn.raise_with_original_backtrace in file "src/exn.ml" (inlined), line 33, characters 2-50
+    Called from Base__Exn.protectx in file "src/exn.ml", line 60, characters 13-49
+    Called from Hardcaml_memory_controller_test__Test_memory_controller.Make_tests.(fun) in file "hardcaml_memory_controller/test/test_memory_controller.ml", lines 307-336, characters 4-9
+    Called from Ppx_expect_runtime__Test_block.Configured.dump_backtrace in file "runtime/test_block.ml", line 350, characters 10-25
 
-      ============================= Output 6 / 8 ==============================
-      Saved waves to /var/home/blake/waves//_read_write_5.hardcamlwaveform
+    Trailing output
+    ---------------
+    Saved waves to /var/home/blake/waves//_read_write_2.hardcamlwaveform
 
-      ============================= Output 7 / 8 ==============================
-      Saved waves to /var/home/blake/waves//_read_write_6.hardcamlwaveform
+    ================================= Output 4 / 8 =================================
+    (* CR expect_test_collector: This test expectation appears to contain a backtrace.
+       This is strongly discouraged as backtraces are fragile.
+       Please change this test to not include a backtrace. *)
+    ("BUG: Expected" (address 9402) (!cached 2439910254) received (v 0))
+    Raised at Base__Error.raise in file "src/error.ml", line 15, characters 34-62
+    Called from Base__Error.raise_s in file "src/error.ml" (inlined), line 24, characters 48-72
+    Called from Hardcaml_memory_controller_test__Test_memory_controller.Make_tests.read_and_assert in file "hardcaml_memory_controller/test/test_memory_controller.ml", lines 260-261, characters 6-87
+    Called from Hardcaml_memory_controller_test__Test_memory_controller.Make_tests.read_thread.loop in file "hardcaml_memory_controller/test/test_memory_controller.ml", line 276, characters 10-52
+    Called from Hardcaml_step_testbench_effectful__Functional.Make.start in file "effectful/functional.ml", line 77, characters 17-41
+    Called from Digital_components__Step_effect.create_component.t.(fun) in file "digital_components/src/step_effect.ml", line 91, characters 24-39
+    Re-raised at Digital_components__Step_core.Runner.update_state.handle_eff in file "digital_components/src/step_core.ml", line 192, characters 25-34
+    Called from Digital_components__Step_core.Runner.update_state.maybe_stall in file "digital_components/src/step_core.ml" (inlined), line 253, characters 13-17
+    Called from Digital_components__Step_core.Runner.update_state in file "digital_components/src/step_core.ml", lines 261-267, characters 8-14
+    Called from Digital_components__Component.update_state in file "digital_components/src/component.ml" (inlined), line 42, characters 2-61
+    Called from Digital_components__Step_core.Runner.update_state.(fun) in file "digital_components/src/step_core.ml", lines 296-300, characters 11-25
+    Called from Base__List0.fold_alloc__'value_or_null_value_or_null_value_or_null_value_or_null'__'value_or_null_float32'__stack.loop in file "src/list0.ml", line 138, characters 22-31
+    Called from Digital_components__Step_core.Runner.update_state in file "digital_components/src/step_core.ml", lines 290-302, characters 7-74
+    Called from Digital_components__Component.update_state in file "digital_components/src/component.ml" (inlined), line 42, characters 2-61
+    Called from Digital_components__Component.create_step_function.(fun) in file "digital_components/src/component.ml", lines 66-71, characters 4-11
+    Called from Digital_components__Component.Run_component_until_finished.run_component_until_finished.loop in file "digital_components/src/component.ml", line 85, characters 19-37
+    Called from Hardcaml_step_testbench_effectful__Functional_cyclesim.Make.run_with_timeout in file "effectful/functional_cyclesim.ml", lines 68-72, characters 4-75
+    Called from Hardcaml_test_harness__Step_harness_functional.Make_effectful.run_advanced.(fun) in file "src/step_harness_functional.ml", lines 117-122, characters 8-12
+    Called from Base__Exn.protectx in file "src/exn.ml", line 53, characters 8-11
+    Re-raised at Base__Exn.raise_with_original_backtrace in file "src/exn.ml" (inlined), line 33, characters 2-50
+    Called from Base__Exn.protectx in file "src/exn.ml", line 60, characters 13-49
+    Called from Hardcaml_memory_controller_test__Test_memory_controller.Make_tests.(fun) in file "hardcaml_memory_controller/test/test_memory_controller.ml", lines 307-336, characters 4-9
+    Called from Ppx_expect_runtime__Test_block.Configured.dump_backtrace in file "runtime/test_block.ml", line 350, characters 10-25
 
-      ============================= Output 8 / 8 ==============================
-      Saved waves to /var/home/blake/waves//_read_write_7.hardcamlwaveform
-      |}]
+    Trailing output
+    ---------------
+    Saved waves to /var/home/blake/waves//_read_write_3.hardcamlwaveform
+
+    ================================= Output 5 / 8 =================================
+    (* CR expect_test_collector: This test expectation appears to contain a backtrace.
+       This is strongly discouraged as backtraces are fragile.
+       Please change this test to not include a backtrace. *)
+    "BUG: Timeout (Read response)"
+    Raised at Base__Error.raise in file "src/error.ml", line 15, characters 34-62
+    Called from Base__Error.raise_s in file "src/error.ml" (inlined), line 24, characters 48-72
+    Called from Hardcaml_memory_controller_test__Test_memory_controller.Make_tests.read_and_assert.wait_for_data in file "hardcaml_memory_controller/test/test_memory_controller.ml", line 237, characters 26-75
+    Called from Hardcaml_memory_controller_test__Test_memory_controller.Make_tests.read_and_assert in file "hardcaml_memory_controller/test/test_memory_controller.ml", line 257, characters 12-30
+    Called from Hardcaml_memory_controller_test__Test_memory_controller.Make_tests.read_thread.loop in file "hardcaml_memory_controller/test/test_memory_controller.ml", line 276, characters 10-52
+    Called from Hardcaml_step_testbench_effectful__Functional.Make.start in file "effectful/functional.ml", line 77, characters 17-41
+    Called from Digital_components__Step_effect.create_component.t.(fun) in file "digital_components/src/step_effect.ml", line 91, characters 24-39
+    Re-raised at Digital_components__Step_core.Runner.update_state.handle_eff in file "digital_components/src/step_core.ml", line 192, characters 25-34
+    Called from Digital_components__Step_core.Runner.update_state.maybe_stall in file "digital_components/src/step_core.ml" (inlined), line 253, characters 13-17
+    Called from Digital_components__Step_core.Runner.update_state in file "digital_components/src/step_core.ml", lines 261-267, characters 8-14
+    Called from Digital_components__Component.update_state in file "digital_components/src/component.ml" (inlined), line 42, characters 2-61
+    Called from Digital_components__Step_core.Runner.update_state.(fun) in file "digital_components/src/step_core.ml", lines 296-300, characters 11-25
+    Called from Base__List0.fold_alloc__'value_or_null_value_or_null_value_or_null_value_or_null'__'value_or_null_float32'__stack.loop in file "src/list0.ml", line 138, characters 22-31
+    Called from Digital_components__Step_core.Runner.update_state in file "digital_components/src/step_core.ml", lines 290-302, characters 7-74
+    Called from Digital_components__Component.update_state in file "digital_components/src/component.ml" (inlined), line 42, characters 2-61
+    Called from Digital_components__Component.create_step_function.(fun) in file "digital_components/src/component.ml", lines 66-71, characters 4-11
+    Called from Digital_components__Component.Run_component_until_finished.run_component_until_finished.loop in file "digital_components/src/component.ml", line 85, characters 19-37
+    Called from Hardcaml_step_testbench_effectful__Functional_cyclesim.Make.run_with_timeout in file "effectful/functional_cyclesim.ml", lines 68-72, characters 4-75
+    Called from Hardcaml_test_harness__Step_harness_functional.Make_effectful.run_advanced.(fun) in file "src/step_harness_functional.ml", lines 117-122, characters 8-12
+    Called from Base__Exn.protectx in file "src/exn.ml", line 53, characters 8-11
+    Re-raised at Base__Exn.raise_with_original_backtrace in file "src/exn.ml" (inlined), line 33, characters 2-50
+    Called from Base__Exn.protectx in file "src/exn.ml", line 60, characters 13-49
+    Called from Hardcaml_memory_controller_test__Test_memory_controller.Make_tests.(fun) in file "hardcaml_memory_controller/test/test_memory_controller.ml", lines 307-336, characters 4-9
+    Called from Ppx_expect_runtime__Test_block.Configured.dump_backtrace in file "runtime/test_block.ml", line 350, characters 10-25
+
+    Trailing output
+    ---------------
+    Saved waves to /var/home/blake/waves//_read_write_4.hardcamlwaveform
+
+    ================================= Output 6 / 8 =================================
+    (* CR expect_test_collector: This test expectation appears to contain a backtrace.
+       This is strongly discouraged as backtraces are fragile.
+       Please change this test to not include a backtrace. *)
+    ("BUG: Timeout (Read)" (ch 0))
+    Raised at Base__Error.raise in file "src/error.ml", line 15, characters 34-62
+    Called from Base__Error.raise_s in file "src/error.ml" (inlined), line 24, characters 48-72
+    Called from Hardcaml_memory_controller_test__Test_memory_controller.Make_tests.read_and_assert.wait_for_ready in file "hardcaml_memory_controller/test/test_memory_controller.ml", line 233, characters 26-77
+    Called from Hardcaml_memory_controller_test__Test_memory_controller.Make_tests.read_and_assert in file "hardcaml_memory_controller/test/test_memory_controller.ml", line 256, characters 4-23
+    Called from Hardcaml_memory_controller_test__Test_memory_controller.Make_tests.read_thread.loop in file "hardcaml_memory_controller/test/test_memory_controller.ml", line 276, characters 10-52
+    Called from Hardcaml_step_testbench_effectful__Functional.Make.start in file "effectful/functional.ml", line 77, characters 17-41
+    Called from Digital_components__Step_effect.create_component.t.(fun) in file "digital_components/src/step_effect.ml", line 91, characters 24-39
+    Re-raised at Digital_components__Step_core.Runner.update_state.handle_eff in file "digital_components/src/step_core.ml", line 192, characters 25-34
+    Called from Digital_components__Step_core.Runner.update_state.maybe_stall in file "digital_components/src/step_core.ml" (inlined), line 253, characters 13-17
+    Called from Digital_components__Step_core.Runner.update_state in file "digital_components/src/step_core.ml", lines 261-267, characters 8-14
+    Called from Digital_components__Component.update_state in file "digital_components/src/component.ml" (inlined), line 42, characters 2-61
+    Called from Digital_components__Step_core.Runner.update_state.(fun) in file "digital_components/src/step_core.ml", lines 296-300, characters 11-25
+    Called from Base__List0.fold_alloc__'value_or_null_value_or_null_value_or_null_value_or_null'__'value_or_null_float32'__stack.loop in file "src/list0.ml", line 138, characters 22-31
+    Called from Digital_components__Step_core.Runner.update_state in file "digital_components/src/step_core.ml", lines 290-302, characters 7-74
+    Called from Digital_components__Component.update_state in file "digital_components/src/component.ml" (inlined), line 42, characters 2-61
+    Called from Digital_components__Component.create_step_function.(fun) in file "digital_components/src/component.ml", lines 66-71, characters 4-11
+    Called from Digital_components__Component.Run_component_until_finished.run_component_until_finished.loop in file "digital_components/src/component.ml", line 85, characters 19-37
+    Called from Hardcaml_step_testbench_effectful__Functional_cyclesim.Make.run_with_timeout in file "effectful/functional_cyclesim.ml", lines 68-72, characters 4-75
+    Called from Hardcaml_test_harness__Step_harness_functional.Make_effectful.run_advanced.(fun) in file "src/step_harness_functional.ml", lines 117-122, characters 8-12
+    Called from Base__Exn.protectx in file "src/exn.ml", line 53, characters 8-11
+    Re-raised at Base__Exn.raise_with_original_backtrace in file "src/exn.ml" (inlined), line 33, characters 2-50
+    Called from Base__Exn.protectx in file "src/exn.ml", line 60, characters 13-49
+    Called from Hardcaml_memory_controller_test__Test_memory_controller.Make_tests.(fun) in file "hardcaml_memory_controller/test/test_memory_controller.ml", lines 307-336, characters 4-9
+    Called from Ppx_expect_runtime__Test_block.Configured.dump_backtrace in file "runtime/test_block.ml", line 350, characters 10-25
+
+    Trailing output
+    ---------------
+    Saved waves to /var/home/blake/waves//_read_write_5.hardcamlwaveform
+
+    ================================= Output 7 / 8 =================================
+    (* CR expect_test_collector: This test expectation appears to contain a backtrace.
+       This is strongly discouraged as backtraces are fragile.
+       Please change this test to not include a backtrace. *)
+    ("BUG: Timeout (Read)" (ch 2))
+    Raised at Base__Error.raise in file "src/error.ml", line 15, characters 34-62
+    Called from Base__Error.raise_s in file "src/error.ml" (inlined), line 24, characters 48-72
+    Called from Hardcaml_memory_controller_test__Test_memory_controller.Make_tests.read_and_assert.wait_for_ready in file "hardcaml_memory_controller/test/test_memory_controller.ml", line 233, characters 26-77
+    Called from Hardcaml_memory_controller_test__Test_memory_controller.Make_tests.read_and_assert in file "hardcaml_memory_controller/test/test_memory_controller.ml", line 256, characters 4-23
+    Called from Hardcaml_memory_controller_test__Test_memory_controller.Make_tests.read_thread.loop in file "hardcaml_memory_controller/test/test_memory_controller.ml", line 276, characters 10-52
+    Called from Hardcaml_step_testbench_effectful__Functional.Make.start in file "effectful/functional.ml", line 77, characters 17-41
+    Called from Digital_components__Step_effect.create_component.t.(fun) in file "digital_components/src/step_effect.ml", line 91, characters 24-39
+    Re-raised at Digital_components__Step_core.Runner.update_state.handle_eff in file "digital_components/src/step_core.ml", line 192, characters 25-34
+    Called from Digital_components__Step_core.Runner.update_state.maybe_stall in file "digital_components/src/step_core.ml" (inlined), line 253, characters 13-17
+    Called from Digital_components__Step_core.Runner.update_state in file "digital_components/src/step_core.ml", lines 261-267, characters 8-14
+    Called from Digital_components__Component.update_state in file "digital_components/src/component.ml" (inlined), line 42, characters 2-61
+    Called from Digital_components__Step_core.Runner.update_state.(fun) in file "digital_components/src/step_core.ml", lines 296-300, characters 11-25
+    Called from Base__List0.fold_alloc__'value_or_null_value_or_null_value_or_null_value_or_null'__'value_or_null_float32'__stack.loop in file "src/list0.ml", line 138, characters 22-31
+    Called from Digital_components__Step_core.Runner.update_state in file "digital_components/src/step_core.ml", lines 290-302, characters 7-74
+    Called from Digital_components__Component.update_state in file "digital_components/src/component.ml" (inlined), line 42, characters 2-61
+    Called from Digital_components__Component.create_step_function.(fun) in file "digital_components/src/component.ml", lines 66-71, characters 4-11
+    Called from Digital_components__Component.Run_component_until_finished.run_component_until_finished.loop in file "digital_components/src/component.ml", line 85, characters 19-37
+    Called from Hardcaml_step_testbench_effectful__Functional_cyclesim.Make.run_with_timeout in file "effectful/functional_cyclesim.ml", lines 68-72, characters 4-75
+    Called from Hardcaml_test_harness__Step_harness_functional.Make_effectful.run_advanced.(fun) in file "src/step_harness_functional.ml", lines 117-122, characters 8-12
+    Called from Base__Exn.protectx in file "src/exn.ml", line 53, characters 8-11
+    Re-raised at Base__Exn.raise_with_original_backtrace in file "src/exn.ml" (inlined), line 33, characters 2-50
+    Called from Base__Exn.protectx in file "src/exn.ml", line 60, characters 13-49
+    Called from Hardcaml_memory_controller_test__Test_memory_controller.Make_tests.(fun) in file "hardcaml_memory_controller/test/test_memory_controller.ml", lines 307-336, characters 4-9
+    Called from Ppx_expect_runtime__Test_block.Configured.dump_backtrace in file "runtime/test_block.ml", line 350, characters 10-25
+
+    Trailing output
+    ---------------
+    Saved waves to /var/home/blake/waves//_read_write_6.hardcamlwaveform
+
+    ================================= Output 8 / 8 =================================
+    (* CR expect_test_collector: This test expectation appears to contain a backtrace.
+       This is strongly discouraged as backtraces are fragile.
+       Please change this test to not include a backtrace. *)
+    ("BUG: Timeout (Read)" (ch 3))
+    Raised at Base__Error.raise in file "src/error.ml", line 15, characters 34-62
+    Called from Base__Error.raise_s in file "src/error.ml" (inlined), line 24, characters 48-72
+    Called from Hardcaml_memory_controller_test__Test_memory_controller.Make_tests.read_and_assert.wait_for_ready in file "hardcaml_memory_controller/test/test_memory_controller.ml", line 233, characters 26-77
+    Called from Hardcaml_memory_controller_test__Test_memory_controller.Make_tests.read_and_assert in file "hardcaml_memory_controller/test/test_memory_controller.ml", line 256, characters 4-23
+    Called from Hardcaml_memory_controller_test__Test_memory_controller.Make_tests.read_thread.loop in file "hardcaml_memory_controller/test/test_memory_controller.ml", line 276, characters 10-52
+    Called from Hardcaml_step_testbench_effectful__Functional.Make.start in file "effectful/functional.ml", line 77, characters 17-41
+    Called from Digital_components__Step_effect.create_component.t.(fun) in file "digital_components/src/step_effect.ml", line 91, characters 24-39
+    Re-raised at Digital_components__Step_core.Runner.update_state.handle_eff in file "digital_components/src/step_core.ml", line 192, characters 25-34
+    Called from Digital_components__Step_core.Runner.update_state.maybe_stall in file "digital_components/src/step_core.ml" (inlined), line 253, characters 13-17
+    Called from Digital_components__Step_core.Runner.update_state in file "digital_components/src/step_core.ml", lines 261-267, characters 8-14
+    Called from Digital_components__Component.update_state in file "digital_components/src/component.ml" (inlined), line 42, characters 2-61
+    Called from Digital_components__Step_core.Runner.update_state.(fun) in file "digital_components/src/step_core.ml", lines 296-300, characters 11-25
+    Called from Base__List0.fold_alloc__'value_or_null_value_or_null_value_or_null_value_or_null'__'value_or_null_float32'__stack.loop in file "src/list0.ml", line 138, characters 22-31
+    Called from Digital_components__Step_core.Runner.update_state in file "digital_components/src/step_core.ml", lines 290-302, characters 7-74
+    Called from Digital_components__Component.update_state in file "digital_components/src/component.ml" (inlined), line 42, characters 2-61
+    Called from Digital_components__Component.create_step_function.(fun) in file "digital_components/src/component.ml", lines 66-71, characters 4-11
+    Called from Digital_components__Component.Run_component_until_finished.run_component_until_finished.loop in file "digital_components/src/component.ml", line 85, characters 19-37
+    Called from Hardcaml_step_testbench_effectful__Functional_cyclesim.Make.run_with_timeout in file "effectful/functional_cyclesim.ml", lines 68-72, characters 4-75
+    Called from Hardcaml_test_harness__Step_harness_functional.Make_effectful.run_advanced.(fun) in file "src/step_harness_functional.ml", lines 117-122, characters 8-12
+    Called from Base__Exn.protectx in file "src/exn.ml", line 53, characters 8-11
+    Re-raised at Base__Exn.raise_with_original_backtrace in file "src/exn.ml" (inlined), line 33, characters 2-50
+    Called from Base__Exn.protectx in file "src/exn.ml", line 60, characters 13-49
+    Called from Hardcaml_memory_controller_test__Test_memory_controller.Make_tests.(fun) in file "hardcaml_memory_controller/test/test_memory_controller.ml", lines 307-336, characters 4-9
+    Called from Ppx_expect_runtime__Test_block.Configured.dump_backtrace in file "runtime/test_block.ml", line 350, characters 10-25
+
+    Trailing output
+    ---------------
+    Saved waves to /var/home/blake/waves//_read_write_7.hardcamlwaveform
+    |}]
   ;;
 end
 
