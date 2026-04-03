@@ -188,12 +188,12 @@ module Make (M0 : Axi4.S) (M1 : Axi4.S) (S : Axi4.S) = struct
       ; arlen
       ; arsize
       ; arburst
-      ; arid = m1_ar
+      ; arid = uextend ~width:S.O.port_widths.awid m1_ar
       ; awaddr
       ; awlen
       ; awsize
       ; awburst
-      ; awid = m1_aw
+      ; awid = uextend ~width:S.O.port_widths.awid m1_aw
       ; awvalid = m0_aw |: m1_aw
       ; wvalid =
           mux2

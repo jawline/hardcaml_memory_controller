@@ -4,7 +4,7 @@ open Hardcaml_test_harness
 open Hardcaml_memory_controller
 open! Bits
 
-let debug = true
+let debug = false
 let verbose = false
 let cell_width = 32
 let cell_bytes = 32 / 8
