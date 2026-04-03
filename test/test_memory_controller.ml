@@ -4,7 +4,7 @@ open Hardcaml_test_harness
 open Hardcaml_memory_controller
 open! Bits
 
-let debug = false
+let debug = true
 let capacity_in_bytes = 65536
 
 module Instruction_or_data = struct
@@ -71,7 +71,7 @@ struct
                   let num_cache_lines = 256
                   let num_read_channels = C.num_channels
                   let num_write_channels = C.num_channels
-                  let register_responses = true
+                  let register_responses = false
                   let register_axi_requests = true
                 end : Axi4_cache.Config)
             else None
@@ -91,7 +91,7 @@ struct
                   let num_cache_lines = 256
                   let num_read_channels = C.num_channels
                   let num_write_channels = C.num_channels
-                  let register_responses = true
+                  let register_responses = false
                   let register_axi_requests = true
                 end : Axi4_cache.Config)
             else None
@@ -438,7 +438,33 @@ struct
       List.iter ~f:(fun t -> Step.wait_for h t) read_threads;
       List.iter ~f:(fun t -> Step.wait_for h t) write_threads;
       ());
-    [%expect {| |}]
+    [%expect
+      {|
+      (* CR expect_test: Test ran multiple times with different test outputs *)
+      ============================= Output 1 / 8 ==============================
+      Saved waves to /var/home/blake/waves//_read_write.hardcamlwaveform
+
+      ============================= Output 2 / 8 ==============================
+      Saved waves to /var/home/blake/waves//_read_write_1.hardcamlwaveform
+
+      ============================= Output 3 / 8 ==============================
+      Saved waves to /var/home/blake/waves//_read_write_2.hardcamlwaveform
+
+      ============================= Output 4 / 8 ==============================
+      Saved waves to /var/home/blake/waves//_read_write_3.hardcamlwaveform
+
+      ============================= Output 5 / 8 ==============================
+      Saved waves to /var/home/blake/waves//_read_write_4.hardcamlwaveform
+
+      ============================= Output 6 / 8 ==============================
+      Saved waves to /var/home/blake/waves//_read_write_5.hardcamlwaveform
+
+      ============================= Output 7 / 8 ==============================
+      Saved waves to /var/home/blake/waves//_read_write_6.hardcamlwaveform
+
+      ============================= Output 8 / 8 ==============================
+      Saved waves to /var/home/blake/waves//_read_write_7.hardcamlwaveform
+      |}]
   ;;
 end
 

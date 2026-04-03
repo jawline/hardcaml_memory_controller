@@ -540,6 +540,12 @@ struct
       type t =
         | Fetch
         | Await_flush
+        | Await_last_write
+          (* TODO: We do this because the second stage assumes it is always
+             free to write into a write buffer, so if we start doing writes
+             while the final flush is going out we can cause issues. Instead we
+             should not block here and make the second stage lock until it can
+             write. *)
         | Finished
       [@@deriving compare ~localize, enumerate, sexp_of]
     end
@@ -563,17 +569,19 @@ struct
       compile
         [ current_state.switch
             [ State.Fetch, [ current_state.set_next Await_flush ]
-            ; ( State.Await_flush
+            ; ( Await_flush
               , [ when_
                     do_not_need_to_write_main_memory_or_can_write_this_cycle
                     [ incr clear_cell
                     ; if_
                         (clear_cell.value ==:. num_cache_lines - 1)
-                        [ current_state.set_next Finished ]
+                        [ current_state.set_next Await_last_write ]
                         [ current_state.set_next Fetch ]
                     ]
                 ] )
-            ; ( State.Finished
+            ; ( Await_last_write
+              , [ when_ ~:(i.memory.busy) [ current_state.set_next Finished ] ] )
+            ; ( Finished
               , [ (* Once finished this module will only again become active on clear. *) ]
               )
             ]
