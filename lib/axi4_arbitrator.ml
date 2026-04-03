@@ -84,7 +84,7 @@ module Make (M0 : Axi4.S) (M1 : Axi4.S) (S : Axi4.S) = struct
            &: s_in.awready
            &: (m0.awvalid |: m1.awvalid)
            &: ~:empty_and_incoming_is_last)
-        ~rd:(s_in.awready &: w_master_valid_and_last)
+        ~rd:(s_in.wready &: w_master_valid_and_last)
         ~d:(mux2 m0.awvalid (pack_id gnd m0.awid) (pack_id vdd m1.awid))
     in
     (* Unpack Read Owner and Original ID *)
