@@ -42,6 +42,7 @@ struct
     module O = struct
       type 'a t =
         { finished : 'a
+        ; busy : 'a
         ; address : 'a [@bits byte_address_width]
         ; id : 'a [@bits id_bits]
         ; axi : 'a Axi.O.t
@@ -102,6 +103,7 @@ struct
                 (mux2 (i.request.valid |: locked &: i.axi.wready) (incr t) t))
             i.clock;
       { O.finished = finishing_this_cycle
+      ; busy = locked
       ; address = o_req.address
       ; id = o_req.id
       ; axi =

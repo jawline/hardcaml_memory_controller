@@ -510,34 +510,82 @@ struct
     ;;
   end
 
-  module Clear_on_startup = struct
+  (* This module flushes and clears the caches. We need to do this on start up
+     to put the cache RAM into a good state. We also do this on DMA clear to
+     flush icaches as instruction code will be rewritten. 
+     
+     After this module completes the cache will be empty (all invalid) and any
+     previous data will have been flushed out to main memory. *)
+  module Flush_and_clear = struct
     module I = struct
-      type 'a t = { clock : 'a Clocking.t } [@@deriving hardcaml]
+      type 'a t =
+        { clock : 'a Clocking.t
+        ; ram : 'a Ram.O.t
+        ; memory : 'a Memory_requester.Write.O.t
+        }
+      [@@deriving hardcaml]
     end
 
     module O = struct
       type 'a t =
         { active : 'a
+        ; ram_read : 'a Ram.Read.t
         ; ram_write : 'a Ram.Write.t
+        ; memory : 'a Memory_requester.Write.Request.t
         }
       [@@deriving hardcaml]
     end
 
+    module State = struct
+      type t =
+        | Fetch
+        | Await_flush
+        | Finished
+      [@@deriving compare ~localize, enumerate, sexp_of]
+    end
+
+    (* TODO: We could interleave the cell fetches and stores with a little more
+       RTL which would speed up the module when RAM is fast or no cells are
+       dirty. *)
+
+    open Always
+
     let create scope (i : _ I.t) =
-      let%hw finishing = wire 1 in
-      let%hw starting_up = Clocking.reg ~clear_to:vdd ~enable:finishing i.clock gnd in
-      let%hw clear_cell =
-        Clocking.reg_fb
-          ~enable:starting_up
-          ~width:(address_bits_for num_cache_lines)
-          ~f:(mod_counter ~max:(num_cache_lines - 1))
-          i.clock
+      let reg_spec = Clocking.to_spec i.clock in
+      let%hw_var clear_cell =
+        Variable.reg ~width:(address_bits_for num_cache_lines) reg_spec
       in
-      finishing <-- (clear_cell ==:. num_cache_lines - 1);
-      { O.active = starting_up
+      let%hw.State_machine current_state = State_machine.create (module State) reg_spec in
+      let%hw need_to_write_main_memory = i.ram.meta.dirty in
+      let%hw do_not_need_to_write_main_memory_or_can_write_this_cycle =
+        ~:need_to_write_main_memory |: ~:(i.memory.busy)
+      in
+      compile
+        [ current_state.switch
+            [ State.Fetch, [ current_state.set_next Await_flush ]
+            ; ( State.Await_flush
+              , [ when_
+                    do_not_need_to_write_main_memory_or_can_write_this_cycle
+                    [ incr clear_cell
+                    ; if_
+                        (clear_cell.value ==:. num_cache_lines - 1)
+                        [ current_state.set_next Finished ]
+                        [ current_state.set_next Fetch ]
+                    ]
+                ] )
+            ; ( State.Finished
+              , [ (* Once finished this module will only again become active on clear. *) ]
+              )
+            ]
+        ];
+      let active = ~:(current_state.is Finished) in
+      { O.active
+      ; ram_read = { valid = active; cache_address = clear_cell.value }
       ; ram_write =
-          { Ram.Write.valid = starting_up
-          ; cache_address = clear_cell
+          { Ram.Write.valid =
+              current_state.is Await_flush
+              &: do_not_need_to_write_main_memory_or_can_write_this_cycle
+          ; cache_address = clear_cell.value
           ; cell_valid = gnd
           ; address = zero Ram.Write.port_widths.address
           ; datas = List.init ~f:(fun _ -> zero cell_width) line_width
@@ -545,12 +593,25 @@ struct
           ; meta_wstrb = zero Ram.Write.port_widths.meta_wstrb
           ; dirty = zero Ram.Write.port_widths.dirty
           }
+      ; memory =
+          { Memory_requester.Write.Request.valid =
+              current_state.is Await_flush
+              &: ~:(i.memory.busy)
+              &: need_to_write_main_memory
+          ; address =
+              sel_bottom
+                ~width:axi_address_width
+                (cache_address_to_byte_address i.ram.meta.address)
+          ; id = zero Memory_requester.Write.Request.port_widths.id
+          ; wstrb = i.ram.meta.strb
+          ; write_data = concat_lsb i.ram.read_data
+          }
       }
     ;;
 
     let hierarchical (scope : Scope.t) (input : Signal.t I.t) =
       let module H = Hierarchy.In_scope (I) (O) in
-      H.hierarchical ~scope ~name:"clear_on_startup" create input
+      H.hierarchical ~scope ~name:"flush_and_clear" create input
     ;;
   end
 
@@ -579,20 +640,13 @@ struct
     (* Register based round robin *)
     let downstream_locked = wire 1 in
     let arb = Arb.hierarchical scope { Arb.I.clock; requests; downstream_locked } in
-    let write = Ram.Write.Of_signal.wires () in
+    let ram_write = Ram.Write.Of_signal.wires () in
+    let ram_read = Ram.Read.Of_signal.wires () in
     let ram =
       Ram.hierarchical
         ~build_mode
         scope
-        { Ram.I.clock
-        ; read =
-            { valid = arb.selected.valid
-            ; cache_address =
-                cell_to_cache_address arb.selected.address
-                |> cache_address_to_hashed_line_address
-            }
-        ; write
-        }
+        { Ram.I.clock; read = ram_read; write = ram_write }
     in
     let read_response = Memory_requester.Read.O.Of_signal.wires () in
     let write_response = Memory_requester.Write.O.Of_signal.wires () in
@@ -615,22 +669,35 @@ struct
         scope
         { Memory_requester.Read.I.clock; request = request_stage.read_request; axi = dn }
     in
+    let memory_write_request = Memory_requester.Write.Request.Of_signal.wires () in
     let memory_write =
       Memory_requester.Write.hierarchical
         scope
-        { Memory_requester.Write.I.clock
-        ; request = request_stage.write_request
-        ; axi = dn
-        }
+        { Memory_requester.Write.I.clock; request = memory_write_request; axi = dn }
     in
     let startup_clear =
-      Clear_on_startup.hierarchical scope { Clear_on_startup.I.clock }
+      Flush_and_clear.hierarchical
+        scope
+        { Flush_and_clear.I.clock; ram; memory = memory_write }
     in
     downstream_locked <-- (startup_clear.active |: request_stage.locked);
+    Ram.Read.Of_signal.(
+      ram_read
+      <-- mux2
+            startup_clear.active
+            startup_clear.ram_read
+            { valid = arb.selected.valid
+            ; cache_address =
+                cell_to_cache_address arb.selected.address
+                |> cache_address_to_hashed_line_address
+            });
     Memory_requester.Read.O.Of_signal.(read_response <-- memory_read);
     Memory_requester.Write.O.Of_signal.(write_response <-- memory_write);
+    Memory_requester.Write.Request.Of_signal.(
+      memory_write_request
+      <-- mux2 startup_clear.active startup_clear.memory request_stage.write_request);
     Ram.Write.Of_signal.(
-      write
+      ram_write
       <-- Ram.Write.Of_signal.mux2
             startup_clear.active
             startup_clear.ram_write
