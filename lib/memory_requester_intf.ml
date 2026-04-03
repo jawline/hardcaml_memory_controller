@@ -21,7 +21,8 @@ module M (Axi : Axi4.S) = struct
           ; busy : 'a
           ; address : 'a [@bits byte_address_width]
           ; id : 'a [@bits id_bits]
-          } [@@deriving hardcaml]
+          }
+        [@@deriving hardcaml]
       end
 
       module I : sig

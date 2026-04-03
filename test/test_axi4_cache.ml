@@ -187,7 +187,7 @@ let%expect_test "manufactured miss" =
     ("Config width" (Axi_config.addr_bits 16))
     ("stats sim"
      ((incoming 12) (incoming_write 6) (incoming_need_to_write_back 0)
-      (incoming_hit 6) (total_cycles 509) (locked_cycles 12)))
+      (incoming_hit 6) (total_cycles 594) (locked_cycles 12)))
     |}]
 ;;
 
@@ -221,7 +221,7 @@ let%expect_test "burst of linear writes" =
     ("stats sim"
      ((incoming 180224) (incoming_write 147456)
       (incoming_need_to_write_back 9216) (incoming_hit 30784)
-      (total_cycles 791761) (locked_cycles 407230)))
+      (total_cycles 791849) (locked_cycles 407233)))
     |}]
 ;;
 
@@ -269,7 +269,7 @@ let%expect_test "loopback" =
     ("Config width" (Axi_config.addr_bits 16))
     ("stats sim"
      ((incoming 65044) (incoming_write 40000) (incoming_need_to_write_back 38375)
-      (incoming_hit 1860) (total_cycles 1423213) (locked_cycles 1305978)))
+      (incoming_hit 1860) (total_cycles 1423297) (locked_cycles 1305977)))
     Finished
     |}]
 ;;

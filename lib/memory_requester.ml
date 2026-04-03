@@ -45,7 +45,8 @@ struct
         ; busy : 'a
         ; address : 'a [@bits byte_address_width]
         ; id : 'a [@bits id_bits]
-        } [@@deriving hardcaml]
+        }
+      [@@deriving hardcaml]
     end
 
     module O = struct
@@ -108,10 +109,12 @@ struct
                 (zero (width t))
                 (mux2 (i.request.valid |: locked &: i.axi.wready) (incr t) t))
             i.clock;
-      { O.response = {Response.finished = finishing_this_cycle
-      ; busy = locked
-      ; address = o_req.address
-      ; id = o_req.id }
+      { O.response =
+          { Response.finished = finishing_this_cycle
+          ; busy = locked
+          ; address = o_req.address
+          ; id = o_req.id
+          }
       ; axi =
           (* Note that downstream controllers may ack data before addresses (wready vs awready). *)
           { Axi.O.awvalid = locked &: ~:address_transferred |: i.request.valid

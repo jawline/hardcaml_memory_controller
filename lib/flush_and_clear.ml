@@ -54,6 +54,7 @@ struct
 
   let create scope (i : _ I.t) =
     let reg_spec = Clocking.to_spec i.clock in
+    let reg_spec_no_clear = Clocking.to_spec_no_clear i.clock in
     let%hw_var clear_cell =
       Variable.reg ~width:(address_bits_for Ram.num_cache_lines) reg_spec
     in
@@ -99,11 +100,18 @@ struct
         }
     ; memory =
         { Memory_requester.Write.Request.valid =
-            current_state.is Await_flush &: ~:(i.memory.busy) &: need_to_write_main_memory
+            (* We delay the memory flush by a cycle as the BRAM -> AXI4 MIG path is very tight. *)
+            reg
+              reg_spec_no_clear
+              (current_state.is Await_flush
+               &: ~:(i.memory.busy)
+               &: need_to_write_main_memory)
         ; address =
-            sel_bottom
-              ~width:Memory_requester.Write.Request.port_widths.address
-              (Ram.cache_address_to_byte_address i.ram.meta.address)
+            reg
+              reg_spec_no_clear
+              (sel_bottom
+                 ~width:Memory_requester.Write.Request.port_widths.address
+                 (Ram.cache_address_to_byte_address i.ram.meta.address))
         ; id = zero Memory_requester.Write.Request.port_widths.id
         ; wstrb = i.ram.meta.strb
         ; write_data = concat_lsb i.ram.read_data
