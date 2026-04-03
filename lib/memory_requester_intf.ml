@@ -15,6 +15,15 @@ module M (Axi : Axi4.S) = struct
         [@@deriving hardcaml]
       end
 
+      module Response : sig
+        type 'a t =
+          { finished : 'a
+          ; busy : 'a
+          ; address : 'a [@bits byte_address_width]
+          ; id : 'a [@bits id_bits]
+          } [@@deriving hardcaml]
+      end
+
       module I : sig
         type 'a t =
           { clock : 'a Clocking.t
@@ -26,10 +35,7 @@ module M (Axi : Axi4.S) = struct
 
       module O : sig
         type 'a t =
-          { finished : 'a
-          ; busy : 'a
-          ; address : 'a [@bits byte_address_width]
-          ; id : 'a [@bits id_bits]
+          { response : 'a Response.t
           ; axi : 'a Axi.O.t
           }
         [@@deriving hardcaml]

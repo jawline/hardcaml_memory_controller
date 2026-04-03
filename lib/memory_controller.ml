@@ -39,7 +39,7 @@ struct
   module I = struct
     type 'a t =
       { clock : 'a Clocking.t
-      ; flush : 'a 
+      ; flush : 'a
       ; instruction : 'a Instruction.Request.t
       ; data : 'a Data.Request.t
       ; memory : 'a Axi_out.I.t
@@ -62,7 +62,7 @@ struct
         ~priority_mode
         ~build_mode
         scope
-        ({ clock; flush ; instruction; data; memory } : _ I.t)
+        ({ clock; flush; instruction; data; memory } : _ I.t)
     =
     let instruction_axi4 = Axi_in.I.Of_signal.wires () in
     let either_controller_locked = wire 1 in
@@ -84,7 +84,7 @@ struct
           ~priority_mode
           ~build_mode
           scope
-          { clock; flush ; request = instruction; memory = instruction_axi4 }
+          { clock; flush; request = instruction; memory = instruction_axi4 }
       in
       { o with
         response =
@@ -124,7 +124,7 @@ struct
           ~priority_mode
           ~build_mode
           scope
-          { clock; flush ; request = data; memory = data_axi4 }
+          { clock; flush; request = data; memory = data_axi4 }
       in
       { o with
         response =

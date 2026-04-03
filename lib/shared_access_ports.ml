@@ -73,7 +73,8 @@ struct
         ~priority_mode
         ~build_mode
         scope
-        ({ clock; flush ; request = { write_to_controller; read_to_controller }; memory } : _ I.t)
+        ({ clock; flush; request = { write_to_controller; read_to_controller }; memory } :
+          _ I.t)
     =
     let write_arbitrator =
       Write_arbitrator.hierarchical
@@ -115,7 +116,7 @@ struct
             ~build_mode
             scope
             { Axi4_cache.I.clock
-            ; flush 
+            ; flush
             ; requests =
                 { which_write_ch = write_arbitrator.which_ch
                 ; selected_write_ch = selected_write

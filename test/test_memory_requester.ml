@@ -85,7 +85,7 @@ let issue_write ~address ~data ~wstrb sim =
   Cyclesim.cycle sim;
   inputs.write.request.valid := gnd;
   let rec loop () =
-    if to_bool !(outputs.write.finished)
+    if to_bool !(outputs.write.response.finished)
     then ()
     else (
       Cyclesim.cycle sim;

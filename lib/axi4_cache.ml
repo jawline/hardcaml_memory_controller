@@ -177,7 +177,7 @@ struct
         ; selected : 'a Selected_request.t
         ; ram_read : 'a Ram.O.t
         ; read_response : 'a Memory_requester.Read.O.t
-        ; write_response : 'a Memory_requester.Write.O.t
+        ; write_response : 'a Memory_requester.Write.Response.t
         }
       [@@deriving hardcaml]
     end
@@ -210,7 +210,7 @@ struct
       let write_response =
         if Config.register_responses
         then
-          { (Memory_requester.Write.O.Of_signal.reg
+          { (Memory_requester.Write.Response.Of_signal.reg
                (Clocking.to_spec_no_clear i.clock)
                i.write_response)
             with
@@ -540,7 +540,7 @@ struct
               arb.selected
         ; ram_read = ram
         ; read_response
-        ; write_response
+        ; write_response = write_response.response
         }
     in
     let memory_read =
@@ -559,7 +559,7 @@ struct
         scope
         { Flush_and_clear.I.clock = { clock with clear = clock.clear |: flush }
         ; ram
-        ; memory = memory_write
+        ; memory = memory_write.response
         }
     in
     downstream_locked <-- (startup_clear.active |: request_stage.locked |: flush);
