@@ -91,10 +91,14 @@ module Make (M0 : Axi4.S) (M1 : Axi4.S) (S : Axi4.S) = struct
     let w_owner_is_m1 = w_fifo_q.owner in
     w_master_valid_and_last
     <-- mux2 w_owner_is_m1 (m1.wvalid &: m1.wlast) (m0.wvalid &: m0.wlast);
-    empty_and_incoming_is_last
-    <-- (~:w_fifo_valid
-         &: (m0.awvalid &: m0.wvalid &: m0.wlast)
-         |: (~:(m0.awvalid) &: m1.awvalid &: m1.wvalid &: m1.wlast));
+    (empty_and_incoming_is_last
+     <--
+     let%hw fifo_has_no_entries = ~:w_fifo_valid in
+     let%hw m0_and_cut_through = m0.awvalid &: m0.wvalid &: m0.wlast &: s_in.wready in
+     let%hw m1_and_cut_through =
+       ~:(m0.awvalid) &: m1.awvalid &: m1.wvalid &: m1.wlast &: s_in.wready
+     in
+     fifo_has_no_entries &: (m0_and_cut_through |: m1_and_cut_through));
     let w_orig_id = w_fifo_q.id in
     w_owner_is_m1, w_orig_id, w_fifo_valid, w_fifo_full
   ;;
