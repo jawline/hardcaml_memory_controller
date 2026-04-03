@@ -87,35 +87,35 @@ struct
     { O.active
     ; ram_read = { valid = active; cache_address = clear_cell.value }
     ; ram_write =
-        { Ram.Write.valid =
-            current_state.is Await_flush
-            &: do_not_need_to_write_main_memory_or_can_write_this_cycle
-        ; cache_address = clear_cell.value
-        ; cell_valid = gnd
-        ; address = zero Ram.Write.port_widths.address
-        ; datas = List.init ~f:(fun _ -> zero Ram.cell_width) Ram.line_width
-        ; real_wstrb = zero Ram.Write.port_widths.real_wstrb
-        ; meta_wstrb = zero Ram.Write.port_widths.meta_wstrb
-        ; dirty = zero Ram.Write.port_widths.dirty
-        }
+        Ram.Write.Of_signal.reg
+          reg_spec_no_clear
+          { Ram.Write.valid =
+              current_state.is Await_flush
+              &: do_not_need_to_write_main_memory_or_can_write_this_cycle
+          ; cache_address = clear_cell.value
+          ; cell_valid = gnd
+          ; address = zero Ram.Write.port_widths.address
+          ; datas = List.init ~f:(fun _ -> zero Ram.cell_width) Ram.line_width
+          ; real_wstrb = zero Ram.Write.port_widths.real_wstrb
+          ; meta_wstrb = zero Ram.Write.port_widths.meta_wstrb
+          ; dirty = zero Ram.Write.port_widths.dirty
+          }
     ; memory =
-        { Memory_requester.Write.Request.valid =
-            (* We delay the memory flush by a cycle as the BRAM -> AXI4 MIG path is very tight. *)
-            reg
-              reg_spec_no_clear
-              (current_state.is Await_flush
-               &: ~:(i.memory.busy)
-               &: need_to_write_main_memory)
-        ; address =
-            reg
-              reg_spec_no_clear
-              (sel_bottom
-                 ~width:Memory_requester.Write.Request.port_widths.address
-                 (Ram.cache_address_to_byte_address i.ram.meta.address))
-        ; id = zero Memory_requester.Write.Request.port_widths.id
-        ; wstrb = i.ram.meta.strb
-        ; write_data = concat_lsb i.ram.read_data
-        }
+        (* We delay the memory flush by a cycle as the BRAM -> AXI4 MIG path is very tight. *)
+        Memory_requester.Write.Request.Of_signal.reg
+          reg_spec_no_clear
+          { Memory_requester.Write.Request.valid =
+              current_state.is Await_flush
+              &: ~:(i.memory.busy)
+              &: need_to_write_main_memory
+          ; address =
+              sel_bottom
+                ~width:Memory_requester.Write.Request.port_widths.address
+                (Ram.cache_address_to_byte_address i.ram.meta.address)
+          ; id = zero Memory_requester.Write.Request.port_widths.id
+          ; wstrb = i.ram.meta.strb
+          ; write_data = concat_lsb i.ram.read_data
+          }
     }
   ;;
 
