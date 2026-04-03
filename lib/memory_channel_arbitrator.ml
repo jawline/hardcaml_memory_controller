@@ -19,7 +19,7 @@ struct
 
   module O = struct
     type 'a t =
-      { which_ch : 'a [@bits address_bits_for (M.num_channels )]
+      { which_ch : 'a [@bits address_bits_for M.num_channels]
       ; selected_ch : 'a S.Source.t
       ; acks : 'a S.Dest.t list [@length M.num_channels]
       }
@@ -59,9 +59,7 @@ struct
           })
         ch_to_controller
     in
-    if List.length channels > 0  then 
-    (priority_select channels).value
-    else gnd
+    if List.length channels > 0 then (priority_select channels).value else gnd
   ;;
 
   let create ~priority_mode scope ({ clock; ch_to_controller } : _ I.t) =
@@ -75,9 +73,9 @@ struct
         | Priority_order -> priority_order ~clock ~ch_to_controller scope)
     in
     let selected_ch =
-      if M.num_channels = 0 then 
-       S.Source.Of_signal.zero ()  else 
-      if M.num_channels = 1
+      if M.num_channels = 0
+      then S.Source.Of_signal.zero ()
+      else if M.num_channels = 1
       then List.hd_exn ch_to_controller
       else S.Source.Of_signal.mux which_ch ch_to_controller
     in
