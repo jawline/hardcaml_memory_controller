@@ -19,10 +19,21 @@ struct
   let axi_address_width = Axi4_out.O.port_widths.awaddr
   let cell_width = Memory_bus.Write.port_widths.write_data
   let cell_bytes = cell_width / 8
-  let line_size_alignment_bits = address_bits_for (cell_bytes * line_width)
   let cell_to_bytes_bits = address_bits_for cell_bytes
   let line_to_cell_bits = address_bits_for line_width
   let cell_address_width = Memory_bus.Read.port_widths.address
+  let line_size_alignment_bits = address_bits_for (cell_bytes * line_width)
+
+  let ram_metadata_address_width =
+    Memory_bus.Read.port_widths.address + cell_to_bytes_bits - line_size_alignment_bits
+  ;;
+
+  module Ram = Cache_ram.Make (struct
+      let cell_width = cell_width
+      let line_width = line_width
+      let num_cache_lines = num_cache_lines
+      let memory_address_width = ram_metadata_address_width
+    end)
 
   let byte_to_cell_address t =
     drop_bottom ~width:cell_to_bytes_bits t
@@ -31,41 +42,8 @@ struct
     uresize ~width:cell_address_width
   ;;
 
-  let cache_address_to_hashed_line_address_generic
-        (type a)
-        (module Comb : Comb.S with type t = a)
-        (t : a)
-    =
-    let line_addr_width = Comb.address_bits_for num_cache_lines in
-    Comb.uresize ~width:line_addr_width t
-  ;;
-
-  let cache_address_to_hashed_line_address =
-    cache_address_to_hashed_line_address_generic (module Signal)
-  ;;
-
-  let cache_address_to_byte_address t =
-    concat_msb [ t; zero (line_to_cell_bits + cell_to_bytes_bits) ]
-  ;;
-
-  let ram_metadata_address_width =
-    Memory_bus.Read.port_widths.address + cell_to_bytes_bits - line_size_alignment_bits
-  ;;
-
-  let cell_to_cache_address t =
-    drop_bottom ~width:line_to_cell_bits t |> uresize ~width:ram_metadata_address_width
-  ;;
-
-  let cell_address_to_bytes t = concat_msb [ t; zero cell_to_bytes_bits ]
   let id_width = Int.max num_read_channels num_write_channels
   let id_bits = address_bits_for id_width
-
-  module Ram = Cache_ram.Make (struct
-      let cell_width = cell_width
-      let line_size = line_width
-      let num_cache_lines = num_cache_lines
-      let memory_address_width = ram_metadata_address_width
-    end)
 
   module Memory_requester =
     Memory_requester.Make
@@ -92,6 +70,8 @@ struct
       }
     [@@deriving hardcaml]
   end
+
+  module Flush_and_clear = Flush_and_clear.Make (Ram) (Axi4_out) (Memory_requester)
 
   module Selected_request = struct
     type 'a t =
@@ -246,11 +226,11 @@ struct
       let%hw incoming_is_write = i.selected.is_write in
       let%hw incoming_is_correct_line =
         i.ram_read.meta.valid
-        &: (i.ram_read.meta.address ==: cell_to_cache_address i.selected.address)
+        &: (i.ram_read.meta.address ==: Ram.cell_to_cache_address i.selected.address)
       in
       let%hw incoming_read_is_hit =
         i.ram_read.meta.valid
-        &: (i.ram_read.meta.address ==: cell_to_cache_address i.selected.address)
+        &: (i.ram_read.meta.address ==: Ram.cell_to_cache_address i.selected.address)
         &: (selected_strb &: i.ram_read.meta.strb ==: selected_strb)
       in
       let%hw need_to_flush_line =
@@ -305,9 +285,10 @@ struct
         ; cell_valid = vdd
         ; cache_address =
             byte_to_cell_address read_response.address
-            |> cell_to_cache_address
-            |> cache_address_to_hashed_line_address
-        ; address = byte_to_cell_address read_response.address |> cell_to_cache_address
+            |> Ram.cell_to_cache_address
+            |> Ram.cache_address_to_hashed_line_address
+        ; address =
+            byte_to_cell_address read_response.address |> Ram.cell_to_cache_address
         ; datas = split_lsb ~part_width:cell_width read_response.data
         ; real_wstrb = memory_write_back_strobe
         ; meta_wstrb = ones (width memory_write_back_strobe)
@@ -318,9 +299,10 @@ struct
         { Ram.Write.valid = incoming &: incoming_is_write
         ; cell_valid = vdd
         ; cache_address =
-            cell_to_cache_address i.selected.address
-            |> cache_address_to_hashed_line_address
-        ; address = cell_to_cache_address i.selected.address (* Already in cell space *)
+            Ram.cell_to_cache_address i.selected.address
+            |> Ram.cache_address_to_hashed_line_address
+        ; address =
+            Ram.cell_to_cache_address i.selected.address (* Already in cell space *)
         ; datas =
             List.mapi
               ~f:(fun which_cell existing_data ->
@@ -445,8 +427,8 @@ struct
            ; address =
                sel_bottom
                  ~width:axi_address_width
-                 (cell_to_cache_address i.selected.address
-                  |> cache_address_to_byte_address)
+                 (Ram.cell_to_cache_address i.selected.address
+                  |> Ram.cache_address_to_byte_address)
            ; id = i.selected.id
            }
            |>
@@ -459,7 +441,7 @@ struct
            ; address =
                sel_bottom
                  ~width:axi_address_width
-                 (cache_address_to_byte_address i.ram_read.meta.address)
+                 (Ram.cache_address_to_byte_address i.ram_read.meta.address)
            ; write_data = concat_lsb i.ram_read.read_data
            ; id = i.selected.id
            }
@@ -507,119 +489,6 @@ struct
     let hierarchical (scope : Scope.t) (input : Signal.t I.t) =
       let module H = Hierarchy.In_scope (I) (O) in
       H.hierarchical ~scope ~name:"request_stage" create input
-    ;;
-  end
-
-  (* This module flushes and clears the caches. We need to do this on start up
-     to put the cache RAM into a good state. We also do this on DMA clear to
-     flush icaches as instruction code will be rewritten. 
-     
-     After this module completes the cache will be empty (all invalid) and any
-     previous data will have been flushed out to main memory. *)
-  module Flush_and_clear = struct
-    module I = struct
-      type 'a t =
-        { clock : 'a Clocking.t
-        ; ram : 'a Ram.O.t
-        ; memory : 'a Memory_requester.Write.O.t
-        }
-      [@@deriving hardcaml]
-    end
-
-    module O = struct
-      type 'a t =
-        { active : 'a
-        ; ram_read : 'a Ram.Read.t
-        ; ram_write : 'a Ram.Write.t
-        ; memory : 'a Memory_requester.Write.Request.t
-        }
-      [@@deriving hardcaml]
-    end
-
-    module State = struct
-      type t =
-        | Fetch
-        | Await_flush
-        | Await_last_write
-          (* TODO: We do this because the second stage assumes it is always
-             free to write into a write buffer, so if we start doing writes
-             while the final flush is going out we can cause issues. Instead we
-             should not block here and make the second stage lock until it can
-             write. *)
-        | Finished
-      [@@deriving compare ~localize, enumerate, sexp_of]
-    end
-
-    (* TODO: We could interleave the cell fetches and stores with a little more
-       RTL which would speed up the module when RAM is fast or no cells are
-       dirty. *)
-
-    open Always
-
-    let create scope (i : _ I.t) =
-      let reg_spec = Clocking.to_spec i.clock in
-      let%hw_var clear_cell =
-        Variable.reg ~width:(address_bits_for num_cache_lines) reg_spec
-      in
-      let%hw.State_machine current_state = State_machine.create (module State) reg_spec in
-      let%hw need_to_write_main_memory = i.ram.meta.dirty in
-      let%hw do_not_need_to_write_main_memory_or_can_write_this_cycle =
-        ~:need_to_write_main_memory |: ~:(i.memory.busy)
-      in
-      compile
-        [ current_state.switch
-            [ State.Fetch, [ current_state.set_next Await_flush ]
-            ; ( Await_flush
-              , [ when_
-                    do_not_need_to_write_main_memory_or_can_write_this_cycle
-                    [ incr clear_cell
-                    ; if_
-                        (clear_cell.value ==:. num_cache_lines - 1)
-                        [ current_state.set_next Await_last_write ]
-                        [ current_state.set_next Fetch ]
-                    ]
-                ] )
-            ; ( Await_last_write
-              , [ when_ ~:(i.memory.busy) [ current_state.set_next Finished ] ] )
-            ; ( Finished
-              , [ (* Once finished this module will only again become active on clear. *) ]
-              )
-            ]
-        ];
-      let active = ~:(current_state.is Finished) in
-      { O.active
-      ; ram_read = { valid = active; cache_address = clear_cell.value }
-      ; ram_write =
-          { Ram.Write.valid =
-              current_state.is Await_flush
-              &: do_not_need_to_write_main_memory_or_can_write_this_cycle
-          ; cache_address = clear_cell.value
-          ; cell_valid = gnd
-          ; address = zero Ram.Write.port_widths.address
-          ; datas = List.init ~f:(fun _ -> zero cell_width) line_width
-          ; real_wstrb = zero Ram.Write.port_widths.real_wstrb
-          ; meta_wstrb = zero Ram.Write.port_widths.meta_wstrb
-          ; dirty = zero Ram.Write.port_widths.dirty
-          }
-      ; memory =
-          { Memory_requester.Write.Request.valid =
-              current_state.is Await_flush
-              &: ~:(i.memory.busy)
-              &: need_to_write_main_memory
-          ; address =
-              sel_bottom
-                ~width:axi_address_width
-                (cache_address_to_byte_address i.ram.meta.address)
-          ; id = zero Memory_requester.Write.Request.port_widths.id
-          ; wstrb = i.ram.meta.strb
-          ; write_data = concat_lsb i.ram.read_data
-          }
-      }
-    ;;
-
-    let hierarchical (scope : Scope.t) (input : Signal.t I.t) =
-      let module H = Hierarchy.In_scope (I) (O) in
-      H.hierarchical ~scope ~name:"flush_and_clear" create input
     ;;
   end
 
@@ -696,8 +565,8 @@ struct
             startup_clear.ram_read
             { valid = arb.selected.valid
             ; cache_address =
-                cell_to_cache_address arb.selected.address
-                |> cache_address_to_hashed_line_address
+                Ram.cell_to_cache_address arb.selected.address
+                |> Ram.cache_address_to_hashed_line_address
             });
     Memory_requester.Read.O.Of_signal.(read_response <-- memory_read);
     Memory_requester.Write.O.Of_signal.(write_response <-- memory_write);

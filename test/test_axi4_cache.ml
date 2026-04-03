@@ -161,7 +161,7 @@ let%expect_test "manufactured miss" =
     let addr1 = 0 in
     let addr2 = 8 * 8 in
     let cache_address_to_hashed_line_address_generic =
-      Axi4_cache.cache_address_to_hashed_line_address_generic (module Bits)
+      Axi4_cache.Ram.cache_address_to_hashed_line_address_generic (module Bits)
     in
     (* Check these addresses collide in our hashfn *)
     assert (

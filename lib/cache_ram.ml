@@ -5,7 +5,7 @@ open Signal
 
 module Make (Config : sig
     val cell_width : int (* The size of each cell (used for strb and line segmentation) *)
-    val line_size : int
+    val line_width : int
     (* The width of the cache line in cells (e.g., if cell_width = 32 and line_size = 4 then the width of a cache line will be 128 bits). *)
 
     val num_cache_lines : int (* The depth the cache in cache lines *)
@@ -13,11 +13,38 @@ module Make (Config : sig
     (* The width of the memory being addressed (used for metadata not for addressing cache lines). *)
   end) =
 struct
-  open Config
+  include Config
+
+  let cell_bytes = cell_width / 8
 
   (* We still need to byte address the strobe so we can tell which bytes to flush. *)
-  let strb_width = cell_width * line_size / 8
+  let strb_width = cell_width * line_width / 8
   let cache_address_width = address_bits_for num_cache_lines
+  let cell_to_bytes_bits = address_bits_for cell_bytes
+  let line_to_cell_bits = address_bits_for line_width
+
+  let cache_address_to_hashed_line_address_generic
+        (type a)
+        (module Comb : Comb.S with type t = a)
+        (t : a)
+    =
+    let line_addr_width = Comb.address_bits_for num_cache_lines in
+    Comb.uresize ~width:line_addr_width t
+  ;;
+
+  let cache_address_to_hashed_line_address =
+    cache_address_to_hashed_line_address_generic (module Signal)
+  ;;
+
+  let cache_address_to_byte_address t =
+    concat_msb [ t; zero (line_to_cell_bits + cell_to_bytes_bits) ]
+  ;;
+
+  let cell_to_cache_address t =
+    drop_bottom ~width:line_to_cell_bits t |> uresize ~width:memory_address_width
+  ;;
+
+  let cell_address_to_bytes t = concat_msb [ t; zero cell_to_bytes_bits ]
 
   module Read = struct
     type 'a t =
@@ -32,7 +59,7 @@ struct
       { valid : 'a
       ; cell_valid : 'a
       ; cache_address : 'a [@bits cache_address_width]
-      ; datas : 'a list [@bits cell_width] [@length line_size]
+      ; datas : 'a list [@bits cell_width] [@length line_width]
       ; address : 'a [@bits memory_address_width]
       ; meta_wstrb : 'a [@bits strb_width]
       ; real_wstrb : 'a
@@ -65,7 +92,7 @@ struct
   module O = struct
     type 'a t =
       { meta : 'a Line_metadata.t
-      ; read_data : 'a list [@bits cell_width] [@length line_size]
+      ; read_data : 'a list [@bits cell_width] [@length line_width]
       }
     [@@deriving hardcaml]
   end

@@ -6,11 +6,11 @@ open! Bits
 
 let debug = false
 let cell_width = 32
-let line_size = 8
+let line_width = 8
 
 module Ram = Cache_ram.Make (struct
     let cell_width = cell_width
-    let line_size = line_size
+    let line_width = line_width
     let num_cache_lines = 512
     let memory_address_width = 32
   end)

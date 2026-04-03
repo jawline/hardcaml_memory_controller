@@ -53,5 +53,18 @@ module type S = sig
 
   val read_latency : int
   val cache_address_width : int
+  val num_cache_lines : int
+  val cell_width : int
+  val line_width : int
+
+  val cache_address_to_hashed_line_address_generic
+    :  (module Comb.S with type t = 'a)
+    -> 'a
+    -> 'a
+
+  val cache_address_to_hashed_line_address : Signal.t -> Signal.t
+  val cache_address_to_byte_address : Signal.t -> Signal.t
+  val cell_to_cache_address : Signal.t -> Signal.t
+  val cell_address_to_bytes : Signal.t -> Signal.t
   val hierarchical : build_mode:Build_mode.t -> Scope.t -> Signal.t I.t -> Signal.t O.t
 end
