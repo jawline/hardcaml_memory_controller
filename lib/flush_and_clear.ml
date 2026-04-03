@@ -17,7 +17,7 @@ struct
     type 'a t =
       { clock : 'a Clocking.t
       ; ram : 'a Ram.O.t
-      ; memory : 'a Memory_requester.Write.Response.t
+      ; memory : 'a Memory_requester.Write.Response.t [@rtlprefix "memory_write_response"]
       }
     [@@deriving hardcaml]
   end
@@ -27,7 +27,7 @@ struct
       { active : 'a
       ; ram_read : 'a Ram.Read.t
       ; ram_write : 'a Ram.Write.t
-      ; memory : 'a Memory_requester.Write.Request.t
+      ; memory : 'a Memory_requester.Write.Request.t [@rtlprefix "memory_write_request"]
       }
     [@@deriving hardcaml]
   end
