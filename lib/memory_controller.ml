@@ -1,5 +1,6 @@
 open! Core
 open Hardcaml
+open Signal
 
 module Make
     (M : sig
@@ -38,6 +39,7 @@ struct
   module I = struct
     type 'a t =
       { clock : 'a Clocking.t
+      ; flush : 'a 
       ; instruction : 'a Instruction.Request.t
       ; data : 'a Data.Request.t
       ; memory : 'a Axi_out.I.t
@@ -60,26 +62,90 @@ struct
         ~priority_mode
         ~build_mode
         scope
-        ({ clock; instruction; data; memory } : _ I.t)
+        ({ clock; flush ; instruction; data; memory } : _ I.t)
     =
     let instruction_axi4 = Axi_in.I.Of_signal.wires () in
+    let either_controller_locked = wire 1 in
     let instruction =
-      Instruction.hierarchical
-        ~capacity_in_bytes
-        ~priority_mode
-        ~build_mode
-        scope
-        { clock; request = instruction; memory = instruction_axi4 }
+      let instruction =
+        { Instruction.Request.read_to_controller =
+            List.map
+              ~f:(fun t -> { t with valid = t.valid &: ~:either_controller_locked })
+              instruction.read_to_controller
+        ; write_to_controller =
+            List.map
+              ~f:(fun t -> { t with valid = t.valid &: ~:either_controller_locked })
+              instruction.write_to_controller
+        }
+      in
+      let o =
+        Instruction.hierarchical
+          ~capacity_in_bytes
+          ~priority_mode
+          ~build_mode
+          scope
+          { clock; flush ; request = instruction; memory = instruction_axi4 }
+      in
+      { o with
+        response =
+          { o.response with
+            read_to_controller =
+              List.map
+                ~f:(fun t ->
+                  { Memory_bus.Read_bus.Dest.ready = t.ready &: ~:either_controller_locked
+                  })
+                o.response.read_to_controller
+          ; write_to_controller =
+              List.map
+                ~f:(fun t ->
+                  { Memory_bus.Write_bus.Dest.ready =
+                      t.ready &: ~:either_controller_locked
+                  })
+                o.response.write_to_controller
+          }
+      }
     in
     let data_axi4 = Axi_in.I.Of_signal.wires () in
     let data =
-      Data.hierarchical
-        ~capacity_in_bytes
-        ~priority_mode
-        ~build_mode
-        scope
-        { clock; request = data; memory = data_axi4 }
+      let data =
+        { Data.Request.read_to_controller =
+            List.map
+              ~f:(fun t -> { t with valid = t.valid &: ~:either_controller_locked })
+              data.read_to_controller
+        ; write_to_controller =
+            List.map
+              ~f:(fun t -> { t with valid = t.valid &: ~:either_controller_locked })
+              data.write_to_controller
+        }
+      in
+      let o =
+        Data.hierarchical
+          ~capacity_in_bytes
+          ~priority_mode
+          ~build_mode
+          scope
+          { clock; flush ; request = data; memory = data_axi4 }
+      in
+      { o with
+        response =
+          { o.response with
+            read_to_controller =
+              List.map
+                ~f:(fun t ->
+                  { Memory_bus.Read_bus.Dest.ready = t.ready &: ~:either_controller_locked
+                  })
+                o.response.read_to_controller
+          ; write_to_controller =
+              List.map
+                ~f:(fun t ->
+                  { Memory_bus.Write_bus.Dest.ready =
+                      t.ready &: ~:either_controller_locked
+                  })
+                o.response.write_to_controller
+          }
+      }
     in
+    either_controller_locked <-- (instruction.locked |: data.locked);
     let arb =
       Arbitrator.hierarchical
         scope

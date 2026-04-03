@@ -34,6 +34,7 @@ module Make
       ; write_ready : 'a
       ; write_error : 'a
       ; memory : 'a Axi4.O.t
+      ; locked : 'a
       }
     [@@deriving hardcaml]
   end

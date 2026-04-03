@@ -495,6 +495,7 @@ struct
   module I = struct
     type 'a t =
       { clock : 'a Clocking.t
+      ; flush : 'a
       ; requests : 'a Memory_requests.t
       ; dn : 'a Axi4_out.I.t
       }
@@ -507,12 +508,13 @@ struct
       ; dn : 'a Axi4_out.O.t
       ; read_ready : 'a
       ; write_ready : 'a
+      ; locked : 'a
       ; statistics : 'a Request_stage.Statistics.t
       }
     [@@deriving hardcaml]
   end
 
-  let create ~build_mode scope ({ clock; requests; dn } : _ I.t) =
+  let create ~build_mode scope ({ clock; flush; requests; dn } : _ I.t) =
     (* TODO:  Warning, the hash function for the AXI4 cache is pretty bad (Fn.id) *)
     (* Register based round robin *)
     let downstream_locked = wire 1 in
@@ -555,9 +557,12 @@ struct
     let startup_clear =
       Flush_and_clear.hierarchical
         scope
-        { Flush_and_clear.I.clock; ram; memory = memory_write }
+        { Flush_and_clear.I.clock = { clock with clear = clock.clear |: flush }
+        ; ram
+        ; memory = memory_write
+        }
     in
-    downstream_locked <-- (startup_clear.active |: request_stage.locked);
+    downstream_locked <-- (startup_clear.active |: request_stage.locked |: flush);
     Ram.Read.Of_signal.(
       ram_read
       <-- mux2
@@ -584,6 +589,7 @@ struct
     ; read_ready = arb.read_ready
     ; write_ready = arb.write_ready
     ; statistics = request_stage.statistics
+    ; locked = startup_clear.active
     }
   ;;
 

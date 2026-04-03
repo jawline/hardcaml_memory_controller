@@ -42,6 +42,7 @@ struct
   module I = struct
     type 'a t =
       { clock : 'a Clocking.t
+      ; flush : 'a 
       ; instruction : 'a Instruction.Request.t
       ; data : 'a Data.Request.t
       }
@@ -61,7 +62,7 @@ struct
         ~read_latency
         ~priority_mode
         scope
-        ({ clock; instruction; data } : _ I.t)
+        ({ clock; flush ; instruction; data } : _ I.t)
     =
     let memory = Axi4_out.O.Of_signal.wires () in
     let mem =
@@ -72,7 +73,7 @@ struct
         ~build_mode
         ~priority_mode
         scope
-        { Memory_controller.I.clock; instruction; data; memory = mem.memory }
+        { Memory_controller.I.clock; flush ;  instruction; data; memory = mem.memory }
     in
     Axi4_out.O.Of_signal.assign memory core.memory;
     { O.instruction = core.instruction; data = core.data }

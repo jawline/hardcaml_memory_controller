@@ -52,6 +52,7 @@ struct
   module I = struct
     type 'a t =
       { clock : 'a Clocking.t
+      ; flush : 'a
       ; request : 'a Request.t
       ; memory : 'a Axi.I.t [@rtlprefix "memory_i$"]
       }
@@ -62,6 +63,7 @@ struct
     type 'a t =
       { response : 'a Response.t
       ; memory : 'a Axi.O.t [@rtlprefix "memory_o$"]
+      ; locked : 'a
       }
     [@@deriving hardcaml ~rtlmangle:"$"]
   end
@@ -71,7 +73,7 @@ struct
         ~priority_mode
         ~build_mode
         scope
-        ({ clock; request = { write_to_controller; read_to_controller }; memory } : _ I.t)
+        ({ clock; flush ; request = { write_to_controller; read_to_controller }; memory } : _ I.t)
     =
     let write_arbitrator =
       Write_arbitrator.hierarchical
@@ -113,6 +115,7 @@ struct
             ~build_mode
             scope
             { Axi4_cache.I.clock
+            ; flush 
             ; requests =
                 { which_write_ch = write_arbitrator.which_ch
                 ; selected_write_ch = selected_write
@@ -129,6 +132,7 @@ struct
         ; read_error = gnd (* TODO: *)
         ; write_error = gnd (* TODO: *)
         ; memory = o.dn
+        ; locked = o.locked
         }
       | None ->
         Core.hierarchical
@@ -157,6 +161,7 @@ struct
         ; read_response = core.read_response
         }
     ; memory = core.memory
+    ; locked = core.locked
     }
   ;;
 

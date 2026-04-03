@@ -23,6 +23,7 @@ module Make
   module I : sig
     type 'a t =
       { clock : 'a Clocking.t
+      ; flush : 'a 
       ; instruction : 'a Instruction.Request.t
       ; data : 'a Data.Request.t
       ; memory : 'a Axi_out.I.t

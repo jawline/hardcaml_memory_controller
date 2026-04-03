@@ -41,6 +41,7 @@ module M (M : Config) (Memory_bus : Memory_bus_intf.S) (Axi : Axi4.S) = struct
     module I : sig
       type 'a t =
         { clock : 'a Clocking.t
+        ; flush : 'a
         ; request : 'a Request.t
         ; memory : 'a Axi.I.t
         }
@@ -51,6 +52,7 @@ module M (M : Config) (Memory_bus : Memory_bus_intf.S) (Axi : Axi4.S) = struct
       type 'a t =
         { response : 'a Response.t
         ; memory : 'a Axi.O.t
+        ; locked : 'a
         }
       [@@deriving hardcaml]
     end

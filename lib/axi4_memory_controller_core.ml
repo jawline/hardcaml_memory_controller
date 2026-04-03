@@ -40,6 +40,7 @@ struct
       ; write_ready : 'a
       ; write_error : 'a
       ; memory : 'a Axi4.O.t [@rtlprefix "memory_o$"]
+      ; locked : 'a
       }
     [@@deriving hardcaml ~rtlmangle:"$"]
   end
@@ -191,6 +192,7 @@ struct
         ; arlen = burst_length
         ; arsize = burst_size
         }
+    ; locked = gnd
     }
   ;;
 
