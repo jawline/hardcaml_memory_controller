@@ -157,20 +157,21 @@ struct
     ;;
   end
 
-  module Request_stage = struct
-    module Statistics = struct
-      (* These counters are small so are unlikely to be useful outside of tests. *)
-      type 'a t =
-        { incoming : 'a [@bits 32]
-        ; incoming_write : 'a [@bits 32]
-        ; incoming_need_to_write_back : 'a [@bits 32]
-        ; incoming_hit : 'a [@bits 32]
-        ; total_cycles : 'a [@bits 32]
-        ; locked_cycles : 'a [@bits 32]
-        }
-      [@@deriving hardcaml]
-    end
 
+
+  module Statistics = struct
+    type 'a t =
+      { incoming : 'a [@bits 32]
+      ; incoming_write : 'a [@bits 32]
+      ; incoming_need_to_write_back : 'a [@bits 32]
+      ; incoming_hit : 'a [@bits 32]
+      ; total_cycles : 'a [@bits 32]
+      ; locked_cycles : 'a [@bits 32]
+      }
+    [@@deriving hardcaml]
+  end
+
+  module Request_stage = struct
     module I = struct
       type 'a t =
         { clock : 'a Clocking.t
@@ -509,7 +510,7 @@ struct
       ; read_ready : 'a
       ; write_ready : 'a
       ; locked : 'a
-      ; statistics : 'a Request_stage.Statistics.t
+      ; statistics : 'a Statistics.t
       }
     [@@deriving hardcaml]
   end
