@@ -2,8 +2,6 @@ open Core
 open Hardcaml
 open Signal
 
-(** A module that requests fixed size blocks of data from an AXI bus. One in flight. *)
-
 module Make
     (Config : sig
        val data_bits : int
@@ -57,82 +55,122 @@ struct
       [@@deriving hardcaml]
     end
 
+    module Request_tracker = struct
+      type 'a t =
+        { locked : 'a
+        ; which_beat : 'a
+        ; need_to_transfer_address : 'a
+        ; need_to_transfer_data : 'a
+        ; finishing : 'a
+        }
+
+      let create scope (i : _ I.t) =
+        let%hw locked = wire 1 in
+        let%hw address_transferred = wire 1 in
+        (* TODO: Using only a counter is probably not optimal vs also precomputing a finished reg. *)
+        let%hw beat_counter = wire (num_bits_to_represent axi_to_bus_ratio) in
+        let%hw data_transferred = beat_counter ==:. axi_to_bus_ratio in
+        let%hw finishing_this_cycle =
+          let%hw is_address_transferred = address_transferred |: i.axi.awready in
+          let%hw is_final_beat_transferred =
+            Unsigned.(beat_counter +: i.axi.wready) ==:. axi_to_bus_ratio
+          in
+          let%hw finishing_in_progress =
+            locked &: is_address_transferred &: is_final_beat_transferred
+          in
+          let%hw finishing_pulse =
+            (* At single beat bus ratios we might do a burst in a single beat. *)
+            if axi_to_bus_ratio = 1
+            then ~:locked &: (i.request.valid &: i.axi.awready &: i.axi.wready)
+            else gnd
+          in
+          finishing_in_progress |: finishing_pulse
+        in
+        locked
+        <-- Clocking.reg_fb
+              ~width:1
+              ~f:(fun t -> i.request.valid |: t &: ~:finishing_this_cycle)
+              i.clock;
+        address_transferred
+        <-- Clocking.reg_fb
+              ~width:1
+              ~f:(fun t ->
+                let%hw write_request_start = i.request.valid &: i.axi.awready in
+                let%hw write_req_in_process = locked &: i.axi.awready in
+                mux2
+                  finishing_this_cycle
+                  gnd
+                  (t |: write_request_start |: write_req_in_process))
+              i.clock;
+        beat_counter
+        <-- Clocking.reg_fb
+              ~width:(num_bits_to_represent axi_to_bus_ratio)
+              ~f:(fun t ->
+                let%hw is_active_request = i.request.valid |: locked in
+                let%hw final_beat_not_transferred = t <:. axi_to_bus_ratio in
+                mux2
+                  finishing_this_cycle
+                  (zero (width t))
+                  (mux2
+                     (is_active_request &: final_beat_not_transferred &: i.axi.wready)
+                     (incr t)
+                     t))
+              i.clock;
+        { locked
+        ; which_beat = beat_counter
+        ; need_to_transfer_address = locked |: i.request.valid &: ~:address_transferred
+        ; need_to_transfer_data = locked |: i.request.valid &: ~:data_transferred
+        ; finishing = finishing_this_cycle
+        }
+      ;;
+    end
+
+    let last_beat = axi_to_bus_ratio - 1
+
     let create scope (i : _ I.t) =
-      let%hw locked = wire 1 in
       let%hw.Request.Of_signal request_reg =
         Request.Of_signal.reg
           ~enable:i.request.valid
           (Clocking.to_spec_no_clear i.clock)
           i.request
       in
-      let%hw address_transferred = wire 1 in
-      (* TODO: Using only a counter is probably not optimal vs also precomputing a finished reg. *)
-      let%hw beat_counter = wire (num_bits_to_represent axi_to_bus_ratio) in
-      let%hw data_transferred = beat_counter ==:. axi_to_bus_ratio in
-      let%hw finishing_this_cycle =
-        let%hw finishing_in_progress =
-          locked
-          &: (address_transferred |: i.axi.awready)
-          &: (Unsigned.(beat_counter +: i.axi.wready) ==:. axi_to_bus_ratio)
-        in
-        let%hw finishing_pulse =
-          (* At single beat bus ratios we might do a burst in a single beat. *)
-          if axi_to_bus_ratio = 1
-          then ~:locked &: (i.request.valid &: i.axi.awready &: i.axi.wready)
-          else gnd
-        in
-        finishing_in_progress |: finishing_pulse
+      let { Request_tracker.locked
+          ; which_beat
+          ; need_to_transfer_address
+          ; need_to_transfer_data
+          ; finishing
+          }
+        =
+        Request_tracker.create scope i
       in
-      locked
-      <-- Clocking.reg_fb
-            ~width:1
-            ~f:(fun t -> i.request.valid |: t &: ~:finishing_this_cycle)
-            i.clock;
-      let o_req = Request.Of_signal.mux2 locked request_reg i.request in
-      address_transferred
-      <-- Clocking.reg_fb
-            ~width:1
-            ~f:(fun t ->
-              let%hw write_request_start = i.request.valid &: i.axi.awready in
-              let%hw write_req_in_process = locked &: i.axi.awready in
-              mux2
-                finishing_this_cycle
-                gnd
-                (t |: write_request_start |: write_req_in_process))
-            i.clock;
-      beat_counter
-      <-- Clocking.reg_fb
-            ~width:(num_bits_to_represent axi_to_bus_ratio)
-            ~f:(fun t ->
-              mux2
-                finishing_this_cycle
-                (zero (width t))
-                (mux2 (i.request.valid |: locked &: i.axi.wready) (incr t) t))
-            i.clock;
+      let output_memory_request = Request.Of_signal.mux2 locked request_reg i.request in
       { O.response =
-          { Response.finished = finishing_this_cycle
+          { Response.finished = finishing
           ; busy = locked
-          ; address = o_req.address
-          ; id = o_req.id
+          ; address = output_memory_request.address
+          ; id = output_memory_request.id
           }
       ; axi =
           (* Note that downstream controllers may ack data before addresses (wready vs awready). *)
-          { Axi.O.awvalid = locked &: ~:address_transferred |: i.request.valid
-          ; wvalid = locked &: ~:data_transferred |: i.request.valid
-          ; awaddr = o_req.address
+          { Axi.O.awvalid = need_to_transfer_address
+          ; wvalid = need_to_transfer_data
+          ; awaddr = output_memory_request.address
           ; awburst = of_unsigned_int ~width:2 0b01 (* INCR *)
           ; awid =
               zero Axi.O.port_widths.arid
               (* TODO: Maybe we should give the cache an ID in case it is on an interconnect? *)
-          ; awlen = of_unsigned_int ~width:Axi.O.port_widths.awlen (axi_to_bus_ratio - 1)
+          ; awlen = of_unsigned_int ~width:Axi.O.port_widths.awlen last_beat
           ; awsize =
               of_unsigned_int
                 ~width:Axi.O.port_widths.awsize
                 (num_bits_to_represent axi_bytes)
-          ; wlast = beat_counter ==:. axi_to_bus_ratio - 1
+          ; wlast = which_beat ==:. last_beat
           ; wdata =
-              mux beat_counter (split_lsb ~part_width:(axi_bytes * 8) o_req.write_data)
-          ; wstrb = mux beat_counter (split_lsb ~part_width:axi_bytes o_req.wstrb)
+              mux
+                which_beat
+                (split_lsb ~part_width:(axi_bytes * 8) output_memory_request.write_data)
+          ; wstrb =
+              mux which_beat (split_lsb ~part_width:axi_bytes output_memory_request.wstrb)
           ; bready = vdd (* Unconditionally ack writes *)
           ; arvalid = gnd
           ; araddr = zero Axi.O.port_widths.araddr
@@ -181,51 +219,66 @@ struct
       [@@deriving hardcaml]
     end
 
+    module Request_tracker = struct
+      type 'a t =
+        { locked : 'a
+        ; which_beat : 'a
+        ; finishing : 'a
+        }
+
+      let create scope (i : _ I.t) =
+        let%hw locked = wire 1 in
+        let%hw beat_counter = wire (address_bits_for axi_to_bus_ratio) in
+        let%hw finishing_this_cycle =
+          locked &: i.axi.rvalid &: (beat_counter ==:. axi_to_bus_ratio - 1)
+        in
+        locked
+        <-- Clocking.reg_fb
+              ~width:1
+              ~f:(fun t -> i.request.valid |: t &: ~:finishing_this_cycle)
+              i.clock;
+        beat_counter
+        <-- Clocking.reg_fb
+              ~width:(address_bits_for axi_to_bus_ratio)
+              ~enable:i.axi.rvalid
+              ~f:(fun t -> mux2 finishing_this_cycle (zero (width t)) (incr t))
+              i.clock;
+        { locked; which_beat = beat_counter; finishing = finishing_this_cycle }
+      ;;
+    end
+
     let create scope (i : _ I.t) =
-      let%hw locked = wire 1 in
-      let%hw beat_counter = wire (address_bits_for axi_to_bus_ratio) in
       let%hw.Request.Of_signal request_reg =
         Request.Of_signal.reg
           ~enable:i.request.valid
           (Clocking.to_spec_no_clear i.clock)
           i.request
       in
-      let%hw finishing_this_cycle =
-        locked &: i.axi.rvalid &: (beat_counter ==:. axi_to_bus_ratio - 1)
+      let { Request_tracker.locked; which_beat; finishing } =
+        Request_tracker.create scope i
       in
-      locked
-      <-- Clocking.reg_fb
-            ~width:1
-            ~f:(fun t -> i.request.valid |: t &: ~:finishing_this_cycle)
-            i.clock;
-      let o_req = Request.Of_signal.mux2 locked request_reg i.request in
       let%hw address_transferred =
         Clocking.reg_fb
           ~width:1
           ~f:(fun t ->
             let%hw read_request_start = i.request.valid &: i.axi.arready in
             let%hw read_req_in_process = locked &: i.axi.arready in
-            mux2 finishing_this_cycle gnd (t |: read_request_start |: read_req_in_process))
+            mux2 finishing gnd (t |: read_request_start |: read_req_in_process))
           i.clock
       in
-      beat_counter
-      <-- Clocking.reg_fb
-            ~width:(address_bits_for axi_to_bus_ratio)
-            ~enable:i.axi.rvalid
-            ~f:(fun t -> mux2 finishing_this_cycle (zero (width t)) (incr t))
-            i.clock;
       let read_parts =
         List.init
           ~f:(fun part ->
             Clocking.reg
-              ~enable:(i.axi.rvalid &: (beat_counter ==:. part))
+              ~enable:(i.axi.rvalid &: (which_beat ==:. part))
               i.clock
               i.axi.rdata)
           (axi_to_bus_ratio - 1)
       in
-      { O.finished = finishing_this_cycle
-      ; address = o_req.address
-      ; id = o_req.id
+      let output_memory_request = Request.Of_signal.mux2 locked request_reg i.request in
+      { O.finished = finishing
+      ; address = output_memory_request.address
+      ; id = output_memory_request.id
       ; data = concat_lsb (List.concat [ read_parts; [ i.axi.rdata ] ])
       ; axi =
           { Axi.O.awvalid = gnd
@@ -240,7 +293,7 @@ struct
           ; wstrb = zero Axi.O.port_widths.wstrb
           ; bready = gnd
           ; arvalid = locked &: ~:address_transferred |: i.request.valid
-          ; araddr = o_req.address
+          ; araddr = output_memory_request.address
           ; arburst = of_unsigned_int ~width:2 0b01 (* INCR *)
           ; arid =
               zero Axi.O.port_widths.arid
