@@ -181,7 +181,7 @@ let%expect_test "manufactured miss" =
     read_and_assert ~address:addr1 ~value:1234 ~ch:0 sim;
     read_and_assert ~address:(addr1 + 4) ~value:39 ~ch:0 sim;
     read_and_assert ~address:addr2 ~value:4321 ~ch:0 sim;
-    print_s [%message (stats sim : int Axi4_cache.Request_stage.Statistics.t)]);
+    print_s [%message (stats sim : int Axi4_cache.Statistics.t)]);
   [%expect
     {|
     ("Config width" (Axi_config.addr_bits 16))
@@ -214,7 +214,7 @@ let%expect_test "burst of linear writes" =
     Sequence.range ~stop:`inclusive ~stride:(-1) ((capacity_in_bytes / cell_bytes) - 1) 0
     |> Sequence.iter ~f:(fun cell ->
       read_and_assert ~address:cell ~value:(cell + 1) ~ch:0 sim);
-    print_s [%message (stats sim : int Axi4_cache.Request_stage.Statistics.t)]);
+    print_s [%message (stats sim : int Axi4_cache.Statistics.t)]);
   [%expect
     {|
     ("Config width" (Axi_config.addr_bits 16))
@@ -262,7 +262,7 @@ let%expect_test "loopback" =
           ~ch:read_ch
           sim
       else ());
-    print_s [%message (stats sim : int Axi4_cache.Request_stage.Statistics.t)]);
+    print_s [%message (stats sim : int Axi4_cache.Statistics.t)]);
   print_s [%message "Finished"];
   [%expect
     {|

@@ -11,6 +11,8 @@ module type Config = sig
 end
 
 module Make (Config : Config) (Memory_bus : Memory_bus_intf.S) (Axi4_out : Axi4.S) : sig
+        module Ram : Cache_ram_intf.S
+
   module Memory_requests : sig
     type 'a t =
       { which_read_ch : 'a [@bits address_bits_for num_read_channels]
