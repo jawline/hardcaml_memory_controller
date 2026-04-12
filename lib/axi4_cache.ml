@@ -20,7 +20,6 @@ struct
   let cell_width = Memory_bus.Write.port_widths.write_data
   let cell_bytes = cell_width / 8
   let cell_to_bytes_bits = address_bits_for cell_bytes
-  let line_to_cell_bits = address_bits_for line_width
   let cell_address_width = Memory_bus.Read.port_widths.address
   let line_size_alignment_bits = address_bits_for (cell_bytes * line_width)
 
@@ -156,8 +155,6 @@ struct
       H.hierarchical ~scope ~name:"axi4_cache_arb" create input
     ;;
   end
-
-
 
   module Statistics = struct
     type 'a t =
