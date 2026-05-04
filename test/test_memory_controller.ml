@@ -133,7 +133,7 @@ struct
     ;;
   end
 
-  module Harness = Step_harness.Functional.Make_effectful (Machine.I) (Machine.O)
+  module Harness = Step_harness.Functional.Make (Machine.I) (Machine.O)
   module Step = Harness.Step
 
   let create_sim f =
