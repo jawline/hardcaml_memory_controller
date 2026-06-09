@@ -15,12 +15,19 @@ module Make (Config : sig
 struct
   include Config
 
+  module Address_utils = Axi4_address_utils.Make (struct
+      let line_width = line_width
+      let num_cache_lines = num_cache_lines
+      let num_ways = 1
+      let cell_width = cell_width
+      let cell_address_width = memory_address_width
+    end)
 
   (* We still need to byte address the strobe so we can tell which bytes to flush. *)
   let strb_width = cell_width * line_width / 8
-  let cache_address_width = address_bits_for num_cache_lines
-  
-
+  let cache_address_width = Address_utils.cache_addr_width
+  let cell_to_cache_address = Address_utils.cell_to_cache_address
+  let cache_address_to_byte_address = Address_utils.cache_address_to_byte_address
 
   module Read = struct
     type 'a t =

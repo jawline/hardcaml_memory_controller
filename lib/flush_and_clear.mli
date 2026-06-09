@@ -3,6 +3,7 @@ open Hardcaml
 
 module Make
     (Config : sig
+       val num_cache_lines : int
        val num_ways : int
      end)
     (Ram : Cache_ram_intf.S)

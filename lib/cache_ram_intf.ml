@@ -56,5 +56,7 @@ module type S = sig
   val num_cache_lines : int
   val cell_width : int
   val line_width : int
+  val cell_to_cache_address : Signal.t -> Signal.t
+  val cache_address_to_byte_address : Signal.t -> Signal.t
   val hierarchical : build_mode:Build_mode.t -> Scope.t -> Signal.t I.t -> Signal.t O.t
 end
