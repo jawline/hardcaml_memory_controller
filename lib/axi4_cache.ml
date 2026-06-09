@@ -19,6 +19,7 @@ struct
   open Config
   open Memory_bus
 
+    let cache_addr_width = address_bits_for num_cache_lines 
   let axi_address_width = Axi4_out.O.port_widths.awaddr
   let cell_width = Memory_bus.Write.port_widths.write_data
   let cell_bytes = cell_width / 8
@@ -87,6 +88,17 @@ struct
       (Axi4_out)
       (Memory_requester)
 
+let line_to_cell_bits = address_bits_for line_width
+
+  let cache_address_to_byte_address t =
+    concat_msb [ t; zero (line_to_cell_bits + cell_to_bytes_bits) ]
+  ;;
+
+
+  let cell_to_cache_address t =
+    drop_bottom ~width:line_to_cell_bits t |> uresize ~width:cache_addr_width
+  ;;
+
   let cache_address_to_hashed_line_address_generic
         (type a)
         ~which_line
@@ -95,25 +107,24 @@ struct
     =
     let open Comb in
     print_s [%message (num_sets : int) (num_ways : int) (t : Comb.t)];
-    let line_addr_width = address_bits_for num_ways in
-    if width t <= line_addr_width
+    if width t <= cache_addr_width
     then (
       print_s
         [%message
           "WARN: Line addr width is smaller than address width so the cache has some \
            unaddressable cells"];
-      uextend ~width:line_addr_width t)
+      uextend ~width:cache_addr_width t)
     else (
       (* This hash fn uses Fn.id for the first cache and xors the first
                two rows for the second cache. We could generalize this to
                further caches by xoring other bits in but I haven't found the
                need yet. *)
-      let lower_bits = sel_bottom ~width:line_addr_width t in
+      let lower_bits = sel_bottom ~width:cache_addr_width t in
       match which_line with
       | 0 -> lower_bits
       | 1 ->
         let upper_bits =
-          drop_bottom ~width:line_addr_width t |> sel_bottom ~width:line_addr_width
+          drop_bottom ~width:cache_addr_width t |> sel_bottom ~width:cache_addr_width
         in
         lower_bits ^: upper_bits
       | _ -> raise_s [%message "TODO: This hashfn is not generic"])
@@ -243,7 +254,7 @@ struct
       [@@deriving hardcaml]
     end
 
-    let cache_to_way_address t = drop_bottom ~width:way_index_bits t
+    let cache_to_way_address t = if Config.num_ways = 1 then t else (drop_bottom ~width:way_index_bits t)
 
     let create scope (i : _ I.t) =
       (* If we're registering requests also register the responses. This can help with fanout from the finished signal which is pretty troublesome on smaller boards. *)
@@ -274,15 +285,15 @@ struct
         i.selected.line_strb
       in
       let%hw selected_address_in_way =
-        if num_ways = 1
-        then Ram.cell_to_cache_address i.selected.address
-        else Ram.cell_to_cache_address i.selected.address |> cache_to_way_address
+        cell_to_cache_address i.selected.address |> cache_to_way_address
       in
       let%hw incoming = i.selected.valid in
       let%hw incoming_is_write = i.selected.is_write in
       let%hw_list incoming_is_correct_line =
         List.map
-          ~f:(fun ram -> ram.meta.valid &: (ram.meta.address ==: selected_address_in_way))
+          ~f:(fun ram -> 
+                  print_s [%message (ram_metadata_address_width : int) (line_size_alignment_bits : int) (way_index_bits : int) (width i.selected.address : int) (width (cell_to_cache_address i.selected.address) : int) (width ram.meta.address : int) (width selected_address_in_way : int)]; 
+                  ram.meta.valid &: (ram.meta.address ==: selected_address_in_way))
           i.ram_read
       in
       let%hw way_index =
@@ -370,11 +381,11 @@ struct
             ; cell_valid = vdd
             ; cache_address =
                 byte_to_cell_address read_response.address
-                |> Ram.cell_to_cache_address
+                |> cell_to_cache_address
                 |> cache_address_to_hashed_line_address ~which_line:0
                 |> cache_to_way_address
             ; address =
-                byte_to_cell_address read_response.address |> Ram.cell_to_cache_address
+                byte_to_cell_address read_response.address |> cell_to_cache_address
             ; datas = split_lsb ~part_width:cell_width read_response.data
             ; real_wstrb = memory_write_back_strobe
             ; meta_wstrb = ones (width memory_write_back_strobe)
@@ -471,7 +482,7 @@ struct
                 read_response.finished
                 (List.nth_exn mem_op_write_back which_set_index)
                 (List.nth_exn incoming_write_back which_set_index))
-            num_sets
+            num_ways
       ; memory_responses =
           { read_response =
               (let%hw read_data =
@@ -520,7 +531,7 @@ struct
                sel_bottom
                  ~width:axi_address_width
                  (Ram.cell_to_cache_address i.selected.address
-                  |> Ram.cache_address_to_byte_address)
+                  |> cache_address_to_byte_address)
            ; id = i.selected.id
            }
            |>
@@ -534,7 +545,7 @@ struct
                sel_bottom
                  ~width:axi_address_width
                  (* TODO: Definately wrong address *)
-                 (Ram.cache_address_to_byte_address way_ram.meta.address)
+                 (cache_address_to_byte_address way_ram.meta.address)
            ; write_data = concat_lsb way_ram.read_data
            ; id = i.selected.id
            }
@@ -660,14 +671,17 @@ struct
     downstream_locked <-- (startup_clear.active |: request_stage.locked |: flush);
     List.iter2_exn
       ~f:(fun ram_read startup_read ->
+              let after_hash = 
+              Ram.cell_to_cache_address arb.selected.address
+              |> cache_address_to_hashed_line_address ~which_line:0 in
         let base_read =
           { Ram.Read.valid = arb.selected.valid
           ; cache_address =
-              Ram.cell_to_cache_address arb.selected.address
-              |> cache_address_to_hashed_line_address ~which_line:0
+              after_hash
               |> drop_bottom ~width:way_index_bits
           }
         in
+        print_s [%message "DDDDD" (Ram.Read.port_widths.cache_address : int ) (width arb.selected.address : int) (width after_hash : int) (width base_read.cache_address : int) (width startup_read.cache_address : int) (ram_metadata_address_width : int) (way_index_bits : int)];
         Ram.Read.Of_signal.(ram_read <-- mux2 startup_clear.active startup_read base_read))
       ram_read
       startup_clear.ram_read;

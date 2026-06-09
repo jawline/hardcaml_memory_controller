@@ -15,23 +15,12 @@ module Make (Config : sig
 struct
   include Config
 
-  let cell_bytes = cell_width / 8
 
   (* We still need to byte address the strobe so we can tell which bytes to flush. *)
   let strb_width = cell_width * line_width / 8
   let cache_address_width = address_bits_for num_cache_lines
-  let cell_to_bytes_bits = address_bits_for cell_bytes
-  let line_to_cell_bits = address_bits_for line_width
+  
 
-  let cache_address_to_byte_address t =
-    concat_msb [ t; zero (line_to_cell_bits + cell_to_bytes_bits) ]
-  ;;
-
-  let cell_to_cache_address t =
-    drop_bottom ~width:line_to_cell_bits t |> uresize ~width:memory_address_width
-  ;;
-
-  let cell_address_to_bytes t = concat_msb [ t; zero cell_to_bytes_bits ]
 
   module Read = struct
     type 'a t =

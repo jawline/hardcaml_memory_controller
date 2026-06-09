@@ -56,8 +56,8 @@ struct
   open Always
 
   let last_cache_line = Ram.num_cache_lines - 1
-  let way_index_bits = address_bits_for Config.num_ways
-  let add_way_index ~index t = concat_lsb [ t; index ]
+  let way_index_bits = if Config.num_ways = 1 then 0 else (address_bits_for Config.num_ways)
+  let add_way_index ~index t = if Config.num_ways = 1 then t else (concat_lsb [ t; index ])
 
   let create scope (i : _ I.t) =
     let reg_spec = Clocking.to_spec i.clock in
@@ -66,7 +66,7 @@ struct
       Variable.reg ~width:(address_bits_for Ram.num_cache_lines) reg_spec
     in
     let%hw.State_machine current_state = State_machine.create (module State) reg_spec in
-    let%hw way_index = sel_bottom ~width:way_index_bits which_cache_line.value in
+    let%hw way_index = if Config.num_ways = 1 then gnd else (sel_bottom ~width:way_index_bits which_cache_line.value)  in
     let way_read = Ram.O.Of_signal.mux way_index i.rams in
     let%hw line_address = drop_bottom ~width:way_index_bits which_cache_line.value in
     let%hw need_to_write_main_memory = way_read.meta.dirty in
