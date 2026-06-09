@@ -8,6 +8,7 @@ module type Config = sig
   val num_write_channels : int
   val register_responses : bool
   val register_axi_requests : bool
+  val num_ways : int
 end
 
 module Make (Config : Config) (Memory_bus : Memory_bus_intf.S) (Axi4_out : Axi4.S) : sig
@@ -44,6 +45,14 @@ module Make (Config : Config) (Memory_bus : Memory_bus_intf.S) (Axi4_out : Axi4.
       }
     [@@deriving hardcaml]
   end
+
+  val cache_address_to_hashed_line_address_generic
+    :  which_line:int
+    -> (module Comb.S with type t = 'a)
+    -> 'a
+    -> 'a
+
+  val cache_address_to_hashed_line_address : which_line:int -> Signal.t -> Signal.t
 
   module I : sig
     type 'a t =

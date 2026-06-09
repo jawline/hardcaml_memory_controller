@@ -73,6 +73,7 @@ struct
                   let num_write_channels = C.num_channels
                   let register_responses = false
                   let register_axi_requests = true
+                  let num_ways = 2
                 end : Axi4_cache.Config)
             else None
           ;;
@@ -93,6 +94,7 @@ struct
                   let num_write_channels = C.num_channels
                   let register_responses = false
                   let register_axi_requests = true
+                  let num_ways = 2
                 end : Axi4_cache.Config)
             else None
           ;;
@@ -438,8 +440,106 @@ struct
       List.iter ~f:(fun t -> Step.wait_for h t) read_threads;
       List.iter ~f:(fun t -> Step.wait_for h t) write_threads;
       ());
-    [%expect
-      {| |}]
+    [%expect {| |}]
+  [@@expect.uncaught_exn
+    {|
+    (* CR expect_test: Test ran multiple times with different uncaught exceptions *)
+    ================================= Output 1 / 8 =================================
+    <expect test ran without uncaught exception>
+    ================================= Output 2 / 8 =================================
+    <expect test ran without uncaught exception>
+    ================================= Output 3 / 8 =================================
+    <expect test ran without uncaught exception>
+    ================================= Output 4 / 8 =================================
+    <expect test ran without uncaught exception>
+    ================================= Output 5 / 8 =================================
+    (* CR expect_test_collector: This test expectation appears to contain a backtrace.
+       This is strongly discouraged as backtraces are fragile.
+       Please change this test to not include a backtrace. *)
+    "Assert_failure hardcaml_memory_controller/lib/axi4_cache.ml:283:8"
+    Raised at Hardcaml_memory_controller__Axi4_cache.Make.Request_stage.create in file "hardcaml_memory_controller/lib/axi4_cache.ml", line 283, characters 8-20
+    Called from Hardcaml__Hierarchy.In_scope_shared.create_in_scope in file "src/hierarchy.ml", line 126, characters 18-40
+    Called from Hardcaml_memory_controller__Axi4_cache.Make.create in file "hardcaml_memory_controller/lib/axi4_cache.ml", lines 630-641, characters 6-9
+    Called from Hardcaml__Hierarchy.In_scope_shared.create_in_scope in file "src/hierarchy.ml", line 126, characters 18-40
+    Called from Hardcaml_memory_controller__Shared_access_ports.Make.create in file "hardcaml_memory_controller/lib/shared_access_ports.ml", lines 115-127, characters 10-13
+    Called from Hardcaml__Hierarchy.In_scope_shared.create_in_scope in file "src/hierarchy.ml", line 126, characters 18-40
+    Called from Hardcaml_memory_controller__Memory_controller.Make.create in file "hardcaml_memory_controller/lib/memory_controller.ml", lines 82-87, characters 8-76
+    Called from Hardcaml__Hierarchy.In_scope_shared.create_in_scope in file "src/hierarchy.ml", line 126, characters 18-40
+    Called from Hardcaml_memory_controller_test__Test_memory_controller.Make_tests.Machine.create in file "hardcaml_memory_controller/test/test_memory_controller.ml", lines 122-126, characters 8-40
+    Called from Hardcaml__Hierarchy.In_scope_shared.create_in_scope in file "src/hierarchy.ml", line 126, characters 18-40
+    Called from Hardcaml__Circuit.With_interface.create_exn in file "src/circuit.ml", line 440, characters 18-34
+    Called from Hardcaml__Cyclesim.With_interface.create in file "src/cyclesim.ml", line 187, characters 18-69
+    Called from Hardcaml_test_harness__Step_harness_functional.Make.run_advanced.(fun) in file "src/step_harness_functional.ml", line 37, characters 24-47
+    Called from Hardcaml_test_harness__Harness_base.run in file "src/harness_base.ml", lines 145-149, characters 4-11
+    Called from Hardcaml_memory_controller_test__Test_memory_controller.Make_tests.(fun) in file "hardcaml_memory_controller/test/test_memory_controller.ml", lines 413-442, characters 4-9
+    Called from Ppx_expect_runtime__Test_block.Configured.dump_backtrace in file "runtime/test_block.ml", line 350, characters 10-25
+
+    ================================= Output 6 / 8 =================================
+    (* CR expect_test_collector: This test expectation appears to contain a backtrace.
+       This is strongly discouraged as backtraces are fragile.
+       Please change this test to not include a backtrace. *)
+    "Assert_failure hardcaml_memory_controller/lib/axi4_cache.ml:283:8"
+    Raised at Hardcaml_memory_controller__Axi4_cache.Make.Request_stage.create in file "hardcaml_memory_controller/lib/axi4_cache.ml", line 283, characters 8-20
+    Called from Hardcaml__Hierarchy.In_scope_shared.create_in_scope in file "src/hierarchy.ml", line 126, characters 18-40
+    Called from Hardcaml_memory_controller__Axi4_cache.Make.create in file "hardcaml_memory_controller/lib/axi4_cache.ml", lines 630-641, characters 6-9
+    Called from Hardcaml__Hierarchy.In_scope_shared.create_in_scope in file "src/hierarchy.ml", line 126, characters 18-40
+    Called from Hardcaml_memory_controller__Shared_access_ports.Make.create in file "hardcaml_memory_controller/lib/shared_access_ports.ml", lines 115-127, characters 10-13
+    Called from Hardcaml__Hierarchy.In_scope_shared.create_in_scope in file "src/hierarchy.ml", line 126, characters 18-40
+    Called from Hardcaml_memory_controller__Memory_controller.Make.create in file "hardcaml_memory_controller/lib/memory_controller.ml", lines 82-87, characters 8-76
+    Called from Hardcaml__Hierarchy.In_scope_shared.create_in_scope in file "src/hierarchy.ml", line 126, characters 18-40
+    Called from Hardcaml_memory_controller_test__Test_memory_controller.Make_tests.Machine.create in file "hardcaml_memory_controller/test/test_memory_controller.ml", lines 122-126, characters 8-40
+    Called from Hardcaml__Hierarchy.In_scope_shared.create_in_scope in file "src/hierarchy.ml", line 126, characters 18-40
+    Called from Hardcaml__Circuit.With_interface.create_exn in file "src/circuit.ml", line 440, characters 18-34
+    Called from Hardcaml__Cyclesim.With_interface.create in file "src/cyclesim.ml", line 187, characters 18-69
+    Called from Hardcaml_test_harness__Step_harness_functional.Make.run_advanced.(fun) in file "src/step_harness_functional.ml", line 37, characters 24-47
+    Called from Hardcaml_test_harness__Harness_base.run in file "src/harness_base.ml", lines 145-149, characters 4-11
+    Called from Hardcaml_memory_controller_test__Test_memory_controller.Make_tests.(fun) in file "hardcaml_memory_controller/test/test_memory_controller.ml", lines 413-442, characters 4-9
+    Called from Ppx_expect_runtime__Test_block.Configured.dump_backtrace in file "runtime/test_block.ml", line 350, characters 10-25
+
+    ================================= Output 7 / 8 =================================
+    (* CR expect_test_collector: This test expectation appears to contain a backtrace.
+       This is strongly discouraged as backtraces are fragile.
+       Please change this test to not include a backtrace. *)
+    "Assert_failure hardcaml_memory_controller/lib/axi4_cache.ml:283:8"
+    Raised at Hardcaml_memory_controller__Axi4_cache.Make.Request_stage.create in file "hardcaml_memory_controller/lib/axi4_cache.ml", line 283, characters 8-20
+    Called from Hardcaml__Hierarchy.In_scope_shared.create_in_scope in file "src/hierarchy.ml", line 126, characters 18-40
+    Called from Hardcaml_memory_controller__Axi4_cache.Make.create in file "hardcaml_memory_controller/lib/axi4_cache.ml", lines 630-641, characters 6-9
+    Called from Hardcaml__Hierarchy.In_scope_shared.create_in_scope in file "src/hierarchy.ml", line 126, characters 18-40
+    Called from Hardcaml_memory_controller__Shared_access_ports.Make.create in file "hardcaml_memory_controller/lib/shared_access_ports.ml", lines 115-127, characters 10-13
+    Called from Hardcaml__Hierarchy.In_scope_shared.create_in_scope in file "src/hierarchy.ml", line 126, characters 18-40
+    Called from Hardcaml_memory_controller__Memory_controller.Make.create in file "hardcaml_memory_controller/lib/memory_controller.ml", lines 82-87, characters 8-76
+    Called from Hardcaml__Hierarchy.In_scope_shared.create_in_scope in file "src/hierarchy.ml", line 126, characters 18-40
+    Called from Hardcaml_memory_controller_test__Test_memory_controller.Make_tests.Machine.create in file "hardcaml_memory_controller/test/test_memory_controller.ml", lines 122-126, characters 8-40
+    Called from Hardcaml__Hierarchy.In_scope_shared.create_in_scope in file "src/hierarchy.ml", line 126, characters 18-40
+    Called from Hardcaml__Circuit.With_interface.create_exn in file "src/circuit.ml", line 440, characters 18-34
+    Called from Hardcaml__Cyclesim.With_interface.create in file "src/cyclesim.ml", line 187, characters 18-69
+    Called from Hardcaml_test_harness__Step_harness_functional.Make.run_advanced.(fun) in file "src/step_harness_functional.ml", line 37, characters 24-47
+    Called from Hardcaml_test_harness__Harness_base.run in file "src/harness_base.ml", lines 145-149, characters 4-11
+    Called from Hardcaml_memory_controller_test__Test_memory_controller.Make_tests.(fun) in file "hardcaml_memory_controller/test/test_memory_controller.ml", lines 413-442, characters 4-9
+    Called from Ppx_expect_runtime__Test_block.Configured.dump_backtrace in file "runtime/test_block.ml", line 350, characters 10-25
+
+    ================================= Output 8 / 8 =================================
+    (* CR expect_test_collector: This test expectation appears to contain a backtrace.
+       This is strongly discouraged as backtraces are fragile.
+       Please change this test to not include a backtrace. *)
+    "Assert_failure hardcaml_memory_controller/lib/axi4_cache.ml:283:8"
+    Raised at Hardcaml_memory_controller__Axi4_cache.Make.Request_stage.create in file "hardcaml_memory_controller/lib/axi4_cache.ml", line 283, characters 8-20
+    Called from Hardcaml__Hierarchy.In_scope_shared.create_in_scope in file "src/hierarchy.ml", line 126, characters 18-40
+    Called from Hardcaml_memory_controller__Axi4_cache.Make.create in file "hardcaml_memory_controller/lib/axi4_cache.ml", lines 630-641, characters 6-9
+    Called from Hardcaml__Hierarchy.In_scope_shared.create_in_scope in file "src/hierarchy.ml", line 126, characters 18-40
+    Called from Hardcaml_memory_controller__Shared_access_ports.Make.create in file "hardcaml_memory_controller/lib/shared_access_ports.ml", lines 115-127, characters 10-13
+    Called from Hardcaml__Hierarchy.In_scope_shared.create_in_scope in file "src/hierarchy.ml", line 126, characters 18-40
+    Called from Hardcaml_memory_controller__Memory_controller.Make.create in file "hardcaml_memory_controller/lib/memory_controller.ml", lines 82-87, characters 8-76
+    Called from Hardcaml__Hierarchy.In_scope_shared.create_in_scope in file "src/hierarchy.ml", line 126, characters 18-40
+    Called from Hardcaml_memory_controller_test__Test_memory_controller.Make_tests.Machine.create in file "hardcaml_memory_controller/test/test_memory_controller.ml", lines 122-126, characters 8-40
+    Called from Hardcaml__Hierarchy.In_scope_shared.create_in_scope in file "src/hierarchy.ml", line 126, characters 18-40
+    Called from Hardcaml__Circuit.With_interface.create_exn in file "src/circuit.ml", line 440, characters 18-34
+    Called from Hardcaml__Cyclesim.With_interface.create in file "src/cyclesim.ml", line 187, characters 18-69
+    Called from Hardcaml_test_harness__Step_harness_functional.Make.run_advanced.(fun) in file "src/step_harness_functional.ml", line 37, characters 24-47
+    Called from Hardcaml_test_harness__Harness_base.run in file "src/harness_base.ml", lines 145-149, characters 4-11
+    Called from Hardcaml_memory_controller_test__Test_memory_controller.Make_tests.(fun) in file "hardcaml_memory_controller/test/test_memory_controller.ml", lines 413-442, characters 4-9
+    Called from Ppx_expect_runtime__Test_block.Configured.dump_backtrace in file "runtime/test_block.ml", line 350, characters 10-25
+    |}]
   ;;
 end
 

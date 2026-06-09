@@ -9,6 +9,9 @@ open Signal
      After this module completes the cache will be empty (all invalid) and any
      previous data will have been flushed out to main memory. *)
 module Make
+    (Config : sig
+       val num_ways : int
+     end)
     (Ram : Cache_ram_intf.S)
     (Axi : Axi4_intf.S)
     (Memory_requester : Memory_requester_intf.M(Axi).S) =
@@ -16,7 +19,7 @@ struct
   module I = struct
     type 'a t =
       { clock : 'a Clocking.t
-      ; ram : 'a Ram.O.t
+      ; rams : 'a Ram.O.t list [@length Config.num_ways]
       ; memory : 'a Memory_requester.Write.Response.t [@rtlprefix "memory_write_response"]
       }
     [@@deriving hardcaml]
@@ -25,8 +28,8 @@ struct
   module O = struct
     type 'a t =
       { active : 'a
-      ; ram_read : 'a Ram.Read.t
-      ; ram_write : 'a Ram.Write.t
+      ; ram_read : 'a Ram.Read.t list [@length Config.num_ways]
+      ; ram_write : 'a Ram.Write.t list [@length Config.num_ways]
       ; memory : 'a Memory_requester.Write.Request.t [@rtlprefix "memory_write_request"]
       }
     [@@deriving hardcaml]
@@ -53,6 +56,8 @@ struct
   open Always
 
   let last_cache_line = Ram.num_cache_lines - 1
+  let way_index_bits = address_bits_for Config.num_ways
+  let add_way_index ~index t = concat_lsb [ t; index ]
 
   let create scope (i : _ I.t) =
     let reg_spec = Clocking.to_spec i.clock in
@@ -61,7 +66,10 @@ struct
       Variable.reg ~width:(address_bits_for Ram.num_cache_lines) reg_spec
     in
     let%hw.State_machine current_state = State_machine.create (module State) reg_spec in
-    let%hw need_to_write_main_memory = i.ram.meta.dirty in
+    let%hw way_index = sel_bottom ~width:way_index_bits which_cache_line.value in
+    let way_read = Ram.O.Of_signal.mux way_index i.rams in
+    let%hw line_address = drop_bottom ~width:way_index_bits which_cache_line.value in
+    let%hw need_to_write_main_memory = way_read.meta.dirty in
     let%hw ready_to_flush_line = ~:need_to_write_main_memory |: ~:(i.memory.busy) in
     compile
       [ current_state.switch
@@ -84,36 +92,46 @@ struct
           ]
       ];
     let active = ~:(current_state.is Finished) in
-    let cache_ram_write =
-      { Ram.Write.valid = current_state.is Await_flush &: ready_to_flush_line
-      ; cache_address = which_cache_line.value
-      ; cell_valid = gnd
-      ; address = zero Ram.Write.port_widths.address
-      ; datas = List.init ~f:(fun _ -> zero Ram.cell_width) Ram.line_width
-      ; real_wstrb = zero Ram.Write.port_widths.real_wstrb
-      ; meta_wstrb = zero Ram.Write.port_widths.meta_wstrb
-      ; dirty = zero Ram.Write.port_widths.dirty
-      }
-    in
     let main_memory_request =
       { Memory_requester.Write.Request.valid =
           current_state.is Await_flush &: ~:(i.memory.busy) &: need_to_write_main_memory
       ; address =
           sel_bottom
             ~width:Memory_requester.Write.Request.port_widths.address
-            (Ram.cache_address_to_byte_address i.ram.meta.address)
+            (Ram.cache_address_to_byte_address
+               (add_way_index ~index:way_index way_read.meta.address))
       ; id = zero Memory_requester.Write.Request.port_widths.id
-      ; wstrb = i.ram.meta.strb
-      ; write_data = concat_lsb i.ram.read_data
+      ; wstrb = way_read.meta.strb
+      ; write_data = concat_lsb way_read.read_data
       }
     in
     { O.active
-    ; ram_read = { valid = active; cache_address = which_cache_line.value }
+    ; ram_read =
+        List.init
+          ~f:(fun _ -> { Ram.Read.valid = active; cache_address = line_address })
+          Config.num_ways
     ; ram_write =
         (* We register the write to ease timings. This is because the final
            write will still have taken effect by the time the first request
            comes in. *)
-        Ram.Write.Of_signal.reg reg_spec_no_clear cache_ram_write
+        List.init
+          ~f:(fun which_way ->
+            let base_write =
+              { Ram.Write.valid =
+                  current_state.is Await_flush
+                  &: ready_to_flush_line
+                  &: (way_index ==:. which_way)
+              ; cache_address = line_address
+              ; cell_valid = gnd
+              ; address = zero Ram.Write.port_widths.address
+              ; datas = List.init ~f:(fun _ -> zero Ram.cell_width) Ram.line_width
+              ; real_wstrb = zero Ram.Write.port_widths.real_wstrb
+              ; meta_wstrb = zero Ram.Write.port_widths.meta_wstrb
+              ; dirty = zero Ram.Write.port_widths.dirty
+              }
+            in
+            Ram.Write.Of_signal.reg reg_spec_no_clear base_write)
+          Config.num_ways
     ; memory =
         (* We delay the memory flush by a cycle as the BRAM -> AXI4 MIG path is very tight. *)
         Memory_requester.Write.Request.Of_signal.reg reg_spec_no_clear main_memory_request

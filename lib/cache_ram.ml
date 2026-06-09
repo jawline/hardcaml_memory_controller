@@ -23,19 +23,6 @@ struct
   let cell_to_bytes_bits = address_bits_for cell_bytes
   let line_to_cell_bits = address_bits_for line_width
 
-  let cache_address_to_hashed_line_address_generic
-        (type a)
-        (module Comb : Comb.S with type t = a)
-        (t : a)
-    =
-    let line_addr_width = Comb.address_bits_for num_cache_lines in
-    Comb.uresize ~width:line_addr_width t
-  ;;
-
-  let cache_address_to_hashed_line_address =
-    cache_address_to_hashed_line_address_generic (module Signal)
-  ;;
-
   let cache_address_to_byte_address t =
     concat_msb [ t; zero (line_to_cell_bits + cell_to_bytes_bits) ]
   ;;

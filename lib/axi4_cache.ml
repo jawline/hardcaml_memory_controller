@@ -9,7 +9,10 @@ module type Config = sig
   val num_write_channels : int
   val register_responses : bool
   val register_axi_requests : bool
+  val num_ways : int
 end
+
+(* NOTE: We do not use lines yet, and always supply line:0. The line parameter is for a future skewed set associative variant of the cache. *)
 
 module Make (Config : Config) (Memory_bus : Memory_bus_intf.S) (Axi4_out : Axi4.S) =
 struct
@@ -22,15 +25,20 @@ struct
   let cell_to_bytes_bits = address_bits_for cell_bytes
   let cell_address_width = Memory_bus.Read.port_widths.address
   let line_size_alignment_bits = address_bits_for (cell_bytes * line_width)
+  let way_index_bits = if num_ways = 1 then 0 else address_bits_for num_ways
+  let num_sets = num_cache_lines / num_ways
 
   let ram_metadata_address_width =
-    Memory_bus.Read.port_widths.address + cell_to_bytes_bits - line_size_alignment_bits
+    Memory_bus.Read.port_widths.address
+    + cell_to_bytes_bits
+    - line_size_alignment_bits
+    - way_index_bits
   ;;
 
   module Ram = Cache_ram.Make (struct
       let cell_width = cell_width
       let line_width = line_width
-      let num_cache_lines = num_cache_lines
+      let num_cache_lines = num_cache_lines / num_ways
       let memory_address_width = ram_metadata_address_width
     end)
 
@@ -70,7 +78,50 @@ struct
     [@@deriving hardcaml]
   end
 
-  module Flush_and_clear = Flush_and_clear.Make (Ram) (Axi4_out) (Memory_requester)
+  module Flush_and_clear =
+    Flush_and_clear.Make
+      (struct
+        let num_ways = num_ways
+      end)
+      (Ram)
+      (Axi4_out)
+      (Memory_requester)
+
+  let cache_address_to_hashed_line_address_generic
+        (type a)
+        ~which_line
+        (module Comb : Comb.S with type t = a)
+        (t : a)
+    =
+    let open Comb in
+    print_s [%message (num_sets : int) (num_ways : int) (t : Comb.t)];
+    let line_addr_width = address_bits_for num_ways in
+    if width t <= line_addr_width
+    then (
+      print_s
+        [%message
+          "WARN: Line addr width is smaller than address width so the cache has some \
+           unaddressable cells"];
+      uextend ~width:line_addr_width t)
+    else (
+      (* This hash fn uses Fn.id for the first cache and xors the first
+               two rows for the second cache. We could generalize this to
+               further caches by xoring other bits in but I haven't found the
+               need yet. *)
+      let lower_bits = sel_bottom ~width:line_addr_width t in
+      match which_line with
+      | 0 -> lower_bits
+      | 1 ->
+        let upper_bits =
+          drop_bottom ~width:line_addr_width t |> sel_bottom ~width:line_addr_width
+        in
+        lower_bits ^: upper_bits
+      | _ -> raise_s [%message "TODO: This hashfn is not generic"])
+  ;;
+
+  let cache_address_to_hashed_line_address =
+    cache_address_to_hashed_line_address_generic (module Signal)
+  ;;
 
   module Selected_request = struct
     type 'a t =
@@ -173,7 +224,7 @@ struct
       type 'a t =
         { clock : 'a Clocking.t
         ; selected : 'a Selected_request.t
-        ; ram_read : 'a Ram.O.t
+        ; ram_read : 'a Ram.O.t list [@length num_ways]
         ; read_response : 'a Memory_requester.Read.O.t
         ; write_response : 'a Memory_requester.Write.Response.t
         }
@@ -183,7 +234,7 @@ struct
     module O = struct
       type 'a t =
         { locked : 'a
-        ; ram_write : 'a Ram.Write.t
+        ; ram_write : 'a Ram.Write.t list [@length num_ways]
         ; read_request : 'a Memory_requester.Read.Request.t
         ; write_request : 'a Memory_requester.Write.Request.t
         ; memory_responses : 'a Memory_responses.t
@@ -191,6 +242,8 @@ struct
         }
       [@@deriving hardcaml]
     end
+
+    let cache_to_way_address t = drop_bottom ~width:way_index_bits t
 
     let create scope (i : _ I.t) =
       (* If we're registering requests also register the responses. This can help with fanout from the finished signal which is pretty troublesome on smaller boards. *)
@@ -220,39 +273,71 @@ struct
         (* TODO: Think harder about this, if we write one byte out and then request 4 bytes we always need to read from cache which sucks in write then read the same memory scenarios. *)
         i.selected.line_strb
       in
+      let%hw selected_address_in_way =
+        if num_ways = 1
+        then Ram.cell_to_cache_address i.selected.address
+        else Ram.cell_to_cache_address i.selected.address |> cache_to_way_address
+      in
       let%hw incoming = i.selected.valid in
       let%hw incoming_is_write = i.selected.is_write in
-      let%hw incoming_is_correct_line =
-        i.ram_read.meta.valid
-        &: (i.ram_read.meta.address ==: Ram.cell_to_cache_address i.selected.address)
+      let%hw_list incoming_is_correct_line =
+        List.map
+          ~f:(fun ram -> ram.meta.valid &: (ram.meta.address ==: selected_address_in_way))
+          i.ram_read
+      in
+      let%hw way_index =
+        if num_ways = 1
+        then gnd
+        else (
+          let ways_scan =
+            List.mapi
+              ~f:(fun i is_hit ->
+                { With_valid.valid = is_hit
+                ; value = of_unsigned_int ~width:way_index_bits i
+                })
+              incoming_is_correct_line
+          in
+          let any_hit = reduce ~f:( |: ) (List.map ~f:(fun t -> t.valid) ways_scan) in
+          let selected = onehot_select ways_scan in
+          let arbitrary =
+            reg_fb
+              ~width:way_index_bits
+              ~f:(mod_counter ~max:(num_ways - 1))
+              (Clocking.to_spec_no_clear i.clock)
+          in
+          mux2 any_hit selected arbitrary)
+      in
+      let%hw found_line_in_ways =
+        (* Do any of our ways contain the cache line we want. *)
+        reduce ~f:( |: ) incoming_is_correct_line
       in
       let%hw incoming_read_is_hit =
-        i.ram_read.meta.valid
-        &: (i.ram_read.meta.address ==: Ram.cell_to_cache_address i.selected.address)
-        &: (selected_strb &: i.ram_read.meta.strb ==: selected_strb)
+        (* We can reduce this since a line can only occupy a single way in any given set *)
+        List.map
+          ~f:(fun (ram, incoming_is_correct_line) ->
+            let%hw has_data_we_want_in_line =
+              selected_strb &: ram.meta.strb ==: selected_strb
+            in
+            incoming_is_correct_line &: has_data_we_want_in_line)
+          (List.zip_exn i.ram_read incoming_is_correct_line)
+        |> reduce ~f:( |: )
       in
+      let%hw.Ram.O.Of_signal way_ram = Ram.O.Of_signal.mux way_index i.ram_read in
       let%hw need_to_flush_line =
+        (* TODO: Not sure how to handle this, if we write back because we're reading 
+             a cell we have a partial hold on we need to do something clever. *)
         let%hw flush_because_evict_on_read =
-          incoming
-          &: ~:incoming_is_correct_line
-          &: ~:incoming_is_write
-          &: ~:incoming_read_is_hit
-          &: i.ram_read.meta.valid
-          &: i.ram_read.meta.dirty
+          incoming &: ~:incoming_is_write &: ~:incoming_read_is_hit &: way_ram.meta.dirty
         in
         let%hw flush_because_write_miss =
-          incoming
-          &: incoming_is_write
-          &: ~:incoming_is_correct_line
-          &: i.ram_read.meta.valid
-          &: i.ram_read.meta.dirty
+          incoming &: incoming_is_write &: ~:found_line_in_ways &: way_ram.meta.dirty
         in
         flush_because_evict_on_read |: flush_because_write_miss
       in
       let%hw issuing_read_request =
         incoming &: ~:incoming_is_write &: ~:incoming_read_is_hit
       in
-      let%hw issuing_write_request = incoming &: need_to_flush_line in
+      let%hw issuing_write_request = need_to_flush_line in
       (* We issue the cache line eviction write and read concurrently. In the case that we are flushing the same cell
          (e.g., we have dws 1 and 2 and we need dw 3), we need to strobe the ram write back to make sure we don't
          read the stale data we just wrote. *)
@@ -261,10 +346,7 @@ struct
           ~enable:issuing_read_request
           (* Clear on finished otherwise successor reads will use the read data strobe. *)
           (Clocking.add_clear i.clock read_response.finished)
-          (mux2
-             (incoming &: incoming_is_correct_line)
-             ~:(i.ram_read.meta.strb)
-             (ones (width i.ram_read.meta.strb)))
+          (mux2 found_line_in_ways ~:(way_ram.meta.strb) (ones (width way_ram.meta.strb)))
       in
       let%hw awaiting_read =
         Clocking.reg
@@ -278,51 +360,60 @@ struct
           (Clocking.add_clear i.clock write_response.finished)
           vdd
       in
-      let%hw.Ram.Write.Of_signal mem_op_write_back =
-        { Ram.Write.valid = read_response.finished
-        ; cell_valid = vdd
-        ; cache_address =
-            byte_to_cell_address read_response.address
-            |> Ram.cell_to_cache_address
-            |> Ram.cache_address_to_hashed_line_address
-        ; address =
-            byte_to_cell_address read_response.address |> Ram.cell_to_cache_address
-        ; datas = split_lsb ~part_width:cell_width read_response.data
-        ; real_wstrb = memory_write_back_strobe
-        ; meta_wstrb = ones (width memory_write_back_strobe)
-        ; dirty = ~:(all_bits_set memory_write_back_strobe)
-        }
+      let mem_op_write_back =
+        List.init
+          ~f:(fun _which_way ->
+            { Ram.Write.valid = read_response.finished &: assert false
+            ; cell_valid = vdd
+            ; cache_address =
+                byte_to_cell_address read_response.address
+                |> Ram.cell_to_cache_address
+                |> cache_address_to_hashed_line_address ~which_line:0
+                |> cache_to_way_address
+            ; address =
+                byte_to_cell_address read_response.address |> Ram.cell_to_cache_address
+            ; datas = split_lsb ~part_width:cell_width read_response.data
+            ; real_wstrb = memory_write_back_strobe
+            ; meta_wstrb = ones (width memory_write_back_strobe)
+            ; dirty = ~:(all_bits_set memory_write_back_strobe)
+            })
+          num_ways
       in
-      let%hw.Ram.Write.Of_signal incoming_write_back =
-        { Ram.Write.valid = incoming &: incoming_is_write
-        ; cell_valid = vdd
-        ; cache_address =
-            Ram.cell_to_cache_address i.selected.address
-            |> Ram.cache_address_to_hashed_line_address
-        ; address =
-            Ram.cell_to_cache_address i.selected.address (* Already in cell space *)
-        ; datas =
-            List.mapi
-              ~f:(fun which_cell existing_data ->
-                mux2
-                  i.selected.cache_cell_one_hot.:(which_cell)
-                  i.selected.write_data
-                  existing_data)
-              i.ram_read.read_data
-        ; real_wstrb = selected_strb (* Only actually write the bytes we see to RAM. *)
-        ; meta_wstrb =
-            (* On a hit we just rewrite a DW, on a miss we zero the rest of
+      let incoming_write_back =
+        List.init
+          ~f:(fun which_way ->
+            { Ram.Write.valid = incoming &: incoming_is_write &: (way_index ==:. which_way)
+            ; cell_valid = vdd
+            ; cache_address =
+                Ram.cell_to_cache_address i.selected.address
+                |> cache_address_to_hashed_line_address ~which_line:0
+            ; address =
+                Ram.cell_to_cache_address i.selected.address (* Already in cell space *)
+                |> cache_to_way_address
+            ; datas =
+                List.mapi
+                  ~f:(fun which_cell existing_data ->
+                    mux2
+                      i.selected.cache_cell_one_hot.:(which_cell)
+                      i.selected.write_data
+                      existing_data)
+                  way_ram.read_data
+            ; real_wstrb =
+                selected_strb (* Only actually write the bytes we see to RAM. *)
+            ; meta_wstrb =
+                (* On a hit we just rewrite a DW, on a miss we zero the rest of
                the cell. This happens asynchronously with a transmission of
                the cell to memory in which time the cell remains locked. *)
-            (let existing_strb =
-               repeat ~count:(width i.ram_read.meta.strb) incoming_is_correct_line
-               &: i.ram_read.meta.strb
-             in
-             selected_strb |: existing_strb)
-        ; dirty =
-            vdd
-            (* We're doing the write in cache only for now so mark the line as dirty *)
-        }
+                (let existing_strb =
+                   repeat ~count:(width way_ram.meta.strb) found_line_in_ways
+                   &: way_ram.meta.strb
+                 in
+                 selected_strb |: existing_strb)
+            ; dirty =
+                vdd
+                (* We're doing the write in cache only for now so mark the line as dirty *)
+            })
+          num_ways
       in
       let%hw read_done =
         incoming &: incoming_read_is_hit &: ~:incoming_is_write |: read_response.finished
@@ -356,12 +447,9 @@ struct
           Clocking.reg
             ~enable:(Clocking.reg i.clock issuing_read_request)
             i.clock
-            (reg (Clocking.to_spec_no_clear i.clock) (concat_lsb i.ram_read.read_data))
+            (reg (Clocking.to_spec_no_clear i.clock) (concat_lsb way_ram.read_data))
         else
-          Clocking.reg
-            ~enable:issuing_read_request
-            i.clock
-            (concat_lsb i.ram_read.read_data)
+          Clocking.reg ~enable:issuing_read_request i.clock (concat_lsb way_ram.read_data)
       in
       let%hw unit_locked =
         (* We lock for this cycle if it's a write so we can write back to the
@@ -374,10 +462,13 @@ struct
       in
       { O.locked = unit_locked
       ; ram_write =
-          Ram.Write.Of_signal.mux2
-            read_response.finished
-            mem_op_write_back
-            incoming_write_back
+          List.init
+            ~f:(fun which_set_index ->
+              Ram.Write.Of_signal.mux2
+                read_response.finished
+                (List.nth_exn mem_op_write_back which_set_index)
+                (List.nth_exn incoming_write_back which_set_index))
+            num_sets
       ; memory_responses =
           { read_response =
               (let%hw read_data =
@@ -386,7 +477,7 @@ struct
                    |: byte_enable_data ~strb:~:memory_write_back_strobe cached_read_data
                  in
                  let%hw read_parts =
-                   mux2 incoming (concat_lsb i.ram_read.read_data) reconstituted_read_data
+                   mux2 incoming (concat_lsb way_ram.read_data) reconstituted_read_data
                  in
                  mux which_read_data_cell (split_lsb ~part_width:cell_width read_parts)
                in
@@ -435,12 +526,13 @@ struct
            else Fn.id)
       ; write_request =
           ({ Memory_requester.Write.Request.valid = issuing_write_request
-           ; wstrb = i.ram_read.meta.strb
+           ; wstrb = way_ram.meta.strb
            ; address =
                sel_bottom
                  ~width:axi_address_width
-                 (Ram.cache_address_to_byte_address i.ram_read.meta.address)
-           ; write_data = concat_lsb i.ram_read.read_data
+                 (* TODO: Definately wrong address *)
+                 (Ram.cache_address_to_byte_address way_ram.meta.address)
+           ; write_data = concat_lsb way_ram.read_data
            ; id = i.selected.id
            }
            |>
@@ -517,13 +609,15 @@ struct
     (* Register based round robin *)
     let downstream_locked = wire 1 in
     let arb = Arb.hierarchical scope { Arb.I.clock; requests; downstream_locked } in
-    let ram_write = Ram.Write.Of_signal.wires () in
-    let ram_read = Ram.Read.Of_signal.wires () in
-    let ram =
-      Ram.hierarchical
-        ~build_mode
-        scope
-        { Ram.I.clock; read = ram_read; write = ram_write }
+    let ram_write = List.init ~f:(fun _ -> Ram.Write.Of_signal.wires ()) num_ways in
+    let ram_read = List.init ~f:(fun _ -> Ram.Read.Of_signal.wires ()) num_ways in
+    let rams =
+      List.zip_exn ram_read ram_write
+      |> List.map ~f:(fun (ram_read, ram_write) ->
+        Ram.hierarchical
+          ~build_mode
+          scope
+          { Ram.I.clock; read = ram_read; write = ram_write })
     in
     let read_response = Memory_requester.Read.O.Of_signal.wires () in
     let write_response = Memory_requester.Write.O.Of_signal.wires () in
@@ -536,7 +630,7 @@ struct
               ~n:Ram.read_latency
               (Clocking.to_spec clock)
               arb.selected
-        ; ram_read = ram
+        ; ram_read = rams
         ; read_response
         ; write_response = write_response.response
         }
@@ -556,32 +650,38 @@ struct
       Flush_and_clear.hierarchical
         scope
         { Flush_and_clear.I.clock = { clock with clear = clock.clear |: flush }
-        ; ram
+        ; rams
         ; memory = memory_write.response
         }
     in
     downstream_locked <-- (startup_clear.active |: request_stage.locked |: flush);
-    Ram.Read.Of_signal.(
+    List.iter2_exn
+      ~f:(fun ram_read startup_read ->
+        let base_read =
+          { Ram.Read.valid = arb.selected.valid
+          ; cache_address =
+              Ram.cell_to_cache_address arb.selected.address
+              |> cache_address_to_hashed_line_address ~which_line:0
+              |> drop_bottom ~width:way_index_bits
+          }
+        in
+        Ram.Read.Of_signal.(ram_read <-- mux2 startup_clear.active startup_read base_read))
       ram_read
-      <-- mux2
-            startup_clear.active
-            startup_clear.ram_read
-            { valid = arb.selected.valid
-            ; cache_address =
-                Ram.cell_to_cache_address arb.selected.address
-                |> Ram.cache_address_to_hashed_line_address
-            });
+      startup_clear.ram_read;
     Memory_requester.Read.O.Of_signal.(read_response <-- memory_read);
     Memory_requester.Write.O.Of_signal.(write_response <-- memory_write);
     Memory_requester.Write.Request.Of_signal.(
       memory_write_request
       <-- mux2 startup_clear.active startup_clear.memory request_stage.write_request);
-    Ram.Write.Of_signal.(
-      ram_write
-      <-- Ram.Write.Of_signal.mux2
-            startup_clear.active
-            startup_clear.ram_write
-            request_stage.ram_write);
+    List.iteri
+      ~f:(fun which_set ram_write ->
+        Ram.Write.Of_signal.(
+          ram_write
+          <-- Ram.Write.Of_signal.mux2
+                startup_clear.active
+                (List.nth_exn startup_clear.ram_write which_set)
+                (List.nth_exn request_stage.ram_write which_set)))
+      ram_write;
     { O.response = request_stage.memory_responses
     ; dn = Axi4_out.O.map2 ~f:( |: ) memory_read.axi memory_write.axi
     ; read_ready = arb.read_ready

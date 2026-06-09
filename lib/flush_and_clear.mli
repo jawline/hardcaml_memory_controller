@@ -2,13 +2,16 @@ open! Core
 open Hardcaml
 
 module Make
+    (Config : sig
+       val num_ways : int
+     end)
     (Ram : Cache_ram_intf.S)
     (Axi : Axi4_intf.S)
     (Memory_requester : Memory_requester_intf.M(Axi).S) : sig
   module I : sig
     type 'a t =
       { clock : 'a Clocking.t
-      ; ram : 'a Ram.O.t
+      ; rams : 'a Ram.O.t list
       ; memory : 'a Memory_requester.Write.Response.t [@rtlprefix "memory_write_response"]
       }
     [@@deriving hardcaml]
@@ -17,8 +20,8 @@ module Make
   module O : sig
     type 'a t =
       { active : 'a
-      ; ram_read : 'a Ram.Read.t
-      ; ram_write : 'a Ram.Write.t
+      ; ram_read : 'a Ram.Read.t list
+      ; ram_write : 'a Ram.Write.t list
       ; memory : 'a Memory_requester.Write.Request.t [@rtlprefix "memory_write_request"]
       }
     [@@deriving hardcaml]
