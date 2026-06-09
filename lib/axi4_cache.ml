@@ -362,8 +362,11 @@ struct
       in
       let mem_op_write_back =
         List.init
-          ~f:(fun _which_way ->
-            { Ram.Write.valid = read_response.finished &: assert false
+          ~f:(fun which_way ->
+            let cached_way_index =
+              reg ~enable:incoming (Clocking.to_spec i.clock) (way_index ==:. which_way)
+            in
+            { Ram.Write.valid = read_response.finished &: cached_way_index
             ; cell_valid = vdd
             ; cache_address =
                 byte_to_cell_address read_response.address
