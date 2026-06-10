@@ -440,8 +440,41 @@ struct
       List.iter ~f:(fun t -> Step.wait_for h t) read_threads;
       List.iter ~f:(fun t -> Step.wait_for h t) write_threads;
       ());
-    [%expect {| |}]
-  
+    [%expect
+      {|
+      (* CR expect_test: Test ran multiple times with different test outputs *)
+      ============================= Output 1 / 8 ==============================
+
+      ============================= Output 2 / 8 ==============================
+
+      ============================= Output 3 / 8 ==============================
+
+      ============================= Output 4 / 8 ==============================
+
+      ============================= Output 5 / 8 ==============================
+      "TODO: The way-cache eviction policy is very bad"
+      "TODO: The any_empty thing is probably not necessary in practice if we do arbitrary eviction, since on the balance of probabilities the entire cache will probably quickly become saturated"
+      "TODO: The way-cache eviction policy is very bad"
+      "TODO: The any_empty thing is probably not necessary in practice if we do arbitrary eviction, since on the balance of probabilities the entire cache will probably quickly become saturated"
+
+      ============================= Output 6 / 8 ==============================
+      "TODO: The way-cache eviction policy is very bad"
+      "TODO: The any_empty thing is probably not necessary in practice if we do arbitrary eviction, since on the balance of probabilities the entire cache will probably quickly become saturated"
+      "TODO: The way-cache eviction policy is very bad"
+      "TODO: The any_empty thing is probably not necessary in practice if we do arbitrary eviction, since on the balance of probabilities the entire cache will probably quickly become saturated"
+
+      ============================= Output 7 / 8 ==============================
+      "TODO: The way-cache eviction policy is very bad"
+      "TODO: The any_empty thing is probably not necessary in practice if we do arbitrary eviction, since on the balance of probabilities the entire cache will probably quickly become saturated"
+      "TODO: The way-cache eviction policy is very bad"
+      "TODO: The any_empty thing is probably not necessary in practice if we do arbitrary eviction, since on the balance of probabilities the entire cache will probably quickly become saturated"
+
+      ============================= Output 8 / 8 ==============================
+      "TODO: The way-cache eviction policy is very bad"
+      "TODO: The any_empty thing is probably not necessary in practice if we do arbitrary eviction, since on the balance of probabilities the entire cache will probably quickly become saturated"
+      "TODO: The way-cache eviction policy is very bad"
+      "TODO: The any_empty thing is probably not necessary in practice if we do arbitrary eviction, since on the balance of probabilities the entire cache will probably quickly become saturated"
+      |}]
   ;;
 end
 

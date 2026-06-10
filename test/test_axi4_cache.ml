@@ -4,13 +4,13 @@ open Hardcaml_test_harness
 open Hardcaml_memory_controller
 open! Bits
 
-let debug = false
+let debug = true
 let verbose = false
 let cell_width = 32
 let cell_bytes = 32 / 8
 let read_channels = 7
 let write_channels = 5
-let capacity_in_bytes = 65536 
+let capacity_in_bytes = 65536
 
 module Axi_config = struct
   let id_bits = 8
@@ -154,6 +154,60 @@ let read_and_assert ~address ~value ~ch sim =
       [%message "BUG: Received" (result : int) "expected" (value : int) (address : int)]
 ;;
 
+let%expect_test "test-set-association" =
+  print_s [%message "Config width" (Axi_config.addr_bits : int)];
+  create_sim (fun ~inputs ~outputs:_ sim ->
+    inputs.clock.clear := vdd;
+    Cyclesim.cycle sim;
+    inputs.clock.clear := gnd;
+    let addr1 = 0 in
+    let addr2 = Bus_config.line_width * Bus_config.num_cache_lines in
+    let addr3 = Bus_config.line_width * Bus_config.num_cache_lines * 2 in
+    let cache_address_to_hashed_line_address_generic =
+      Axi4_cache.cache_address_to_hashed_line_address_generic (module Bits)
+    in
+    (* Check these addresses collide in our hashfn *)
+    assert (
+      Bits.(
+        cache_address_to_hashed_line_address_generic
+          ~which_line:0
+          (of_unsigned_int ~width:16 addr1)
+        ==: cache_address_to_hashed_line_address_generic
+              ~which_line:0
+              (of_unsigned_int ~width:16 addr2)
+        |> to_bool));
+    assert (
+      Bits.(
+        cache_address_to_hashed_line_address_generic
+          ~which_line:0
+          (of_unsigned_int ~width:16 addr1)
+        ==: cache_address_to_hashed_line_address_generic
+              ~which_line:0
+              (of_unsigned_int ~width:16 addr3)
+        |> to_bool));
+    write ~timeout:1000 ~address:addr1 ~value:1234 ~ch:0 sim;
+    write ~timeout:1000 ~address:(addr1 + 1) ~value:999 ~ch:0 sim;
+    write ~timeout:1000 ~address:(addr1 + 2) ~value:111 ~ch:0 sim;
+    write ~timeout:1000 ~address:(addr1 + 3) ~value:333 ~ch:0 sim;
+    write ~timeout:1000 ~address:(addr1 + 4) ~value:39 ~ch:0 sim;
+    write ~timeout:1000 ~address:addr2 ~value:4321 ~ch:0 sim;
+    write ~timeout:1000 ~address:addr3 ~value:1212 ~ch:0 sim;
+    read_and_assert ~address:addr1 ~value:1234 ~ch:0 sim;
+    read_and_assert ~address:addr3 ~value:1212 ~ch:0 sim;
+    read_and_assert ~address:addr2 ~value:4321 ~ch:0 sim;
+    print_s [%message (stats sim : int Axi4_cache.Statistics.t)]);
+  [%expect
+    {|
+    ("Config width" (Axi_config.addr_bits 16))
+    "TODO: The way-cache eviction policy is very bad"
+    "TODO: The any_empty thing is probably not necessary in practice if we do arbitrary eviction, since on the balance of probabilities the entire cache will probably quickly become saturated"
+    ("stats sim"
+     ((incoming 13) (incoming_write 7) (incoming_need_to_write_back 2)
+      (incoming_hit 5) (total_cycles 609) (locked_cycles 63)))
+    Saved waves to /home/blake/waves//_test_set_association.hardcamlwaveform
+    |}]
+;;
+
 let%expect_test "manufactured miss" =
   print_s [%message "Config width" (Axi_config.addr_bits : int)];
   create_sim (fun ~inputs ~outputs:_ sim ->
@@ -161,37 +215,29 @@ let%expect_test "manufactured miss" =
     Cyclesim.cycle sim;
     inputs.clock.clear := gnd;
     let addr1 = 0 in
-    let addr2 = 8 * 8 in
-    let addr3 = 8 * 16 in
-    let module Addr_utils = Axi4_address_utils.Make (struct
-        let line_width = 1
-        let num_cache_lines = 8
-        let num_ways = 2
-        let cell_width = 8
-        let cell_address_width = 8
-      end)
-    in
+    let addr2 = Bus_config.line_width * Bus_config.num_cache_lines in
+    let addr3 = Bus_config.line_width * Bus_config.num_cache_lines * 2 in
     let cache_address_to_hashed_line_address_generic =
-      Addr_utils.cache_address_to_hashed_line_address_generic (module Bits)
+      Axi4_cache.cache_address_to_hashed_line_address_generic (module Bits)
     in
     (* Check these addresses collide in our hashfn *)
     assert (
       Bits.(
         cache_address_to_hashed_line_address_generic
           ~which_line:0
-          (of_unsigned_int ~width:8 addr1)
+          (of_unsigned_int ~width:16 addr1)
         ==: cache_address_to_hashed_line_address_generic
               ~which_line:0
-              (of_unsigned_int ~width:8 addr2)
+              (of_unsigned_int ~width:16 addr2)
         |> to_bool));
     assert (
       Bits.(
         cache_address_to_hashed_line_address_generic
           ~which_line:0
-          (of_unsigned_int ~width:8 addr1)
+          (of_unsigned_int ~width:16 addr1)
         ==: cache_address_to_hashed_line_address_generic
               ~which_line:0
-              (of_unsigned_int ~width:8 addr3)
+              (of_unsigned_int ~width:16 addr3)
         |> to_bool));
     write ~timeout:1000 ~address:addr1 ~value:1234 ~ch:0 sim;
     write ~timeout:1000 ~address:(addr1 + 1) ~value:999 ~ch:0 sim;
@@ -209,9 +255,12 @@ let%expect_test "manufactured miss" =
   [%expect
     {|
     ("Config width" (Axi_config.addr_bits 16))
+    "TODO: The way-cache eviction policy is very bad"
+    "TODO: The any_empty thing is probably not necessary in practice if we do arbitrary eviction, since on the balance of probabilities the entire cache will probably quickly become saturated"
     ("stats sim"
      ((incoming 12) (incoming_write 6) (incoming_need_to_write_back 0)
       (incoming_hit 6) (total_cycles 558) (locked_cycles 12)))
+    Saved waves to /home/blake/waves//_manufactured_miss.hardcamlwaveform
     |}]
 ;;
 
@@ -242,10 +291,13 @@ let%expect_test "burst of linear writes" =
   [%expect
     {|
     ("Config width" (Axi_config.addr_bits 16))
+    "TODO: The way-cache eviction policy is very bad"
+    "TODO: The any_empty thing is probably not necessary in practice if we do arbitrary eviction, since on the balance of probabilities the entire cache will probably quickly become saturated"
     ("stats sim"
      ((incoming 180224) (incoming_write 147456)
-      (incoming_need_to_write_back 9216) (incoming_hit 30753)
-      (total_cycles 793441) (locked_cycles 408893)))
+      (incoming_need_to_write_back 8928) (incoming_hit 34912)
+      (total_cycles 786565) (locked_cycles 401729)))
+    Saved waves to /home/blake/waves//_burst_of_linear_writes.hardcamlwaveform
     |}]
 ;;
 
@@ -291,9 +343,12 @@ let%expect_test "loopback" =
   [%expect
     {|
     ("Config width" (Axi_config.addr_bits 16))
+    "TODO: The way-cache eviction policy is very bad"
+    "TODO: The any_empty thing is probably not necessary in practice if we do arbitrary eviction, since on the balance of probabilities the entire cache will probably quickly become saturated"
     ("stats sim"
-     ((incoming 65044) (incoming_write 40000) (incoming_need_to_write_back 38919)
-      (incoming_hit 1577) (total_cycles 1430061) (locked_cycles 1312893)))
+     ((incoming 65044) (incoming_write 40000) (incoming_need_to_write_back 39221)
+      (incoming_hit 1856) (total_cycles 1431221) (locked_cycles 1315082)))
+    Saved waves to /home/blake/waves//_loopback.hardcamlwaveform
     Finished
     |}]
 ;;

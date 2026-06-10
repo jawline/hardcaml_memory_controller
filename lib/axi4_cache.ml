@@ -32,6 +32,18 @@ struct
 
   open Address_utils
 
+  let cache_to_set_address t =
+    if Config.num_ways = 1 then t else drop_bottom ~width:way_index_bits t
+  ;;
+
+  let cache_address_to_hashed_line_address_generic =
+    Address_utils.cache_address_to_hashed_line_address_generic
+  ;;
+
+  let cache_address_to_hashed_line_address =
+    Address_utils.cache_address_to_hashed_line_address
+  ;;
+
   let axi_address_width = Axi4_out.O.port_widths.awaddr
 
   module Ram = Cache_ram.Make (struct
@@ -181,6 +193,9 @@ struct
       type 'a t =
         { clock : 'a Clocking.t
         ; selected : 'a Selected_request.t
+        ; set_cache : 'a
+              [@bits cache_set_metadata_size]
+              (* Metadata for each set rather than each way in the set *)
         ; ram_read : 'a Ram.O.t list [@length num_ways]
         ; read_response : 'a Memory_requester.Read.O.t
         ; write_response : 'a Memory_requester.Write.Response.t
@@ -194,15 +209,14 @@ struct
         ; ram_write : 'a Ram.Write.t list [@length num_ways]
         ; read_request : 'a Memory_requester.Read.Request.t
         ; write_request : 'a Memory_requester.Write.Request.t
+        ; write_set_cache : 'a
+        ; write_set_cache_address : 'a [@bits num_sets]
+        ; write_set_cache_value : 'a [@bits cache_set_metadata_size]
         ; memory_responses : 'a Memory_responses.t
         ; statistics : 'a Statistics.t
         }
       [@@deriving hardcaml]
     end
-
-    let cache_to_way_address t =
-      if Config.num_ways = 1 then t else drop_bottom ~width:way_index_bits t
-    ;;
 
     let create scope (i : _ I.t) =
       (* If we're registering requests also register the responses. This can help with fanout from the finished signal which is pretty troublesome on smaller boards. *)
@@ -232,9 +246,7 @@ struct
         (* TODO: Think harder about this, if we write one byte out and then request 4 bytes we always need to read from cache which sucks in write then read the same memory scenarios. *)
         i.selected.line_strb
       in
-      let%hw selected_address_in_way =
-        cell_to_cache_address i.selected.address  
-      in
+      let%hw selected_address_in_way = cell_to_cache_address i.selected.address in
       let%hw incoming = i.selected.valid in
       let%hw incoming_is_write = i.selected.is_write in
       let%hw_list incoming_is_correct_line =
@@ -256,13 +268,11 @@ struct
           in
           let any_hit = reduce ~f:( |: ) (List.map ~f:(fun t -> t.valid) ways_scan) in
           let selected = onehot_select ways_scan in
-          let arbitrary =
-            reg_fb
-              ~width:way_index_bits
-              ~f:(mod_counter ~max:(num_ways - 1))
-              (Clocking.to_spec_no_clear i.clock)
-          in
-          mux2 any_hit selected arbitrary)
+          (* TODO: Fix this. *)
+          print_s [%message "TODO: The way-cache eviction policy is very bad"];
+          mux2 any_hit selected i.set_cache
+          (* The set cache serves as a FIFO queue mechanism for now. *)
+          (* TODO: We should swap this for an LRU style matrix *))
       in
       let%hw found_line_in_ways =
         (* Do any of our ways contain the cache line we want. *)
@@ -329,10 +339,9 @@ struct
                 byte_to_cell_address read_response.address
                 |> cell_to_cache_address
                 |> cache_address_to_hashed_line_address ~which_line:0
-                |> cache_to_way_address
+                |> cache_to_set_address
             ; address =
-                byte_to_cell_address read_response.address
-                |> cell_to_cache_address
+                byte_to_cell_address read_response.address |> cell_to_cache_address
             ; datas = split_lsb ~part_width:cell_width read_response.data
             ; real_wstrb = memory_write_back_strobe
             ; meta_wstrb = ones (width memory_write_back_strobe)
@@ -348,7 +357,7 @@ struct
             ; cache_address =
                 cell_to_cache_address i.selected.address
                 |> cache_address_to_hashed_line_address ~which_line:0
-                |> cache_to_way_address
+                |> cache_to_set_address
             ; address =
                 cell_to_cache_address i.selected.address (* Already in cell space *)
             ; datas =
@@ -500,6 +509,13 @@ struct
            if Config.register_axi_requests
            then Memory_requester.Write.Request.Of_signal.reg (Clocking.to_spec i.clock)
            else Fn.id)
+      ; write_set_cache = incoming &: ~:found_line_in_ways
+      ; write_set_cache_address =
+          cell_to_cache_address i.selected.address
+          |> sel_bottom ~width:cache_addr_width
+          |> cache_to_set_address
+      ; write_set_cache_value =
+          incr i.set_cache (* TODO: Replace this with a LRU matrix based approach. *)
       ; statistics =
           { Statistics.incoming =
               Clocking.reg_fb
@@ -565,7 +581,36 @@ struct
     [@@deriving hardcaml]
   end
 
-  let create ~build_mode scope ({ clock; flush; requests; dn } : _ I.t) =
+  let set_cache
+        _scope
+        ~write_valid
+        ~write_address
+        ~write_value
+        ~read
+        ({ clock; _ } : _ I.t)
+    =
+    let read_port =
+      { Read_port.read_clock = clock.clock; read_enable = vdd; read_address = read }
+    in
+    let write_port =
+      { Write_port.write_clock = clock.clock
+      ; write_enable = write_valid
+      ; write_address
+      ; write_data = write_value
+      }
+    in
+    let ram_q =
+      Hardcaml.Ram.create
+        ~collision_mode:Read_before_write
+        ~size:num_sets
+        ~read_ports:[| read_port |]
+        ~write_ports:[| write_port |]
+        ()
+    in
+    Array.get ram_q 0
+  ;;
+
+  let create ~build_mode scope ({ clock; flush; requests; dn } as i : _ I.t) =
     (* TODO:  Warning, the hash function for the AXI4 cache is pretty bad (Fn.id) *)
     (* Register based round robin *)
     let downstream_locked = wire 1 in
@@ -582,6 +627,7 @@ struct
     in
     let read_response = Memory_requester.Read.O.Of_signal.wires () in
     let write_response = Memory_requester.Write.O.Of_signal.wires () in
+    let set_cache_q = wire cache_set_metadata_size in
     let request_stage =
       Request_stage.hierarchical
         scope
@@ -591,6 +637,7 @@ struct
               ~n:Ram.read_latency
               (Clocking.to_spec clock)
               arb.selected
+        ; set_cache = set_cache_q
         ; ram_read = rams
         ; read_response
         ; write_response = write_response.response
@@ -616,16 +663,15 @@ struct
         }
     in
     downstream_locked <-- (startup_clear.active |: request_stage.locked |: flush);
+    let set_address =
+      cell_to_cache_address arb.selected.address
+      |> cache_address_to_hashed_line_address ~which_line:0
+      |> cache_to_set_address
+    in
     List.iter2_exn
       ~f:(fun ram_read startup_read ->
-        let after_hash =
-          cell_to_cache_address arb.selected.address
-          |> cache_address_to_hashed_line_address ~which_line:0
-        in
         let base_read =
-          { Ram.Read.valid = arb.selected.valid
-          ; cache_address = after_hash |> drop_bottom ~width:way_index_bits
-          }
+          { Ram.Read.valid = arb.selected.valid; cache_address = set_address }
         in
         Ram.Read.Of_signal.(ram_read <-- mux2 startup_clear.active startup_read base_read))
       ram_read
@@ -644,6 +690,14 @@ struct
                 (List.nth_exn startup_clear.ram_write which_set)
                 (List.nth_exn request_stage.ram_write which_set)))
       ram_write;
+    set_cache_q
+    <-- set_cache
+          ~read:set_address
+          ~write_valid:request_stage.write_set_cache
+          ~write_address:request_stage.write_set_cache_address
+          ~write_value:request_stage.write_set_cache_value
+          scope
+          i;
     { O.response = request_stage.memory_responses
     ; dn = Axi4_out.O.map2 ~f:( |: ) memory_read.axi memory_write.axi
     ; read_ready = arb.read_ready
