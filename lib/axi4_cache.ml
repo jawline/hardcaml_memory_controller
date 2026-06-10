@@ -293,10 +293,8 @@ struct
       in
       let%hw.Ram.O.Of_signal way_ram = Ram.O.Of_signal.mux way_index i.ram_read in
       let%hw need_to_flush_line =
-        (* TODO: Not sure how to handle this, if we write back because we're reading 
-             a cell we have a partial hold on we need to do something clever. *)
         let%hw flush_because_evict_on_read =
-          incoming &: ~:incoming_is_write &: ~:incoming_read_is_hit &: way_ram.meta.dirty
+          incoming &: ~:incoming_is_write &: ~:found_line_in_ways &: way_ram.meta.dirty
         in
         let%hw flush_because_write_miss =
           incoming &: incoming_is_write &: ~:found_line_in_ways &: way_ram.meta.dirty

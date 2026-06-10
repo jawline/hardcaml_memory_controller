@@ -352,7 +352,7 @@ let%expect_test "loopback" =
     {|
     ("Config width" (Axi_config.addr_bits 16))
     ("stats sim"
-     ((incoming 65044) (incoming_write 40000) (incoming_need_to_write_back 39173)
+     ((incoming 65044) (incoming_write 40000) (incoming_need_to_write_back 38323)
       (incoming_hit 1846) (total_cycles 1422697) (locked_cycles 1305230)))
     Finished
     |}]
