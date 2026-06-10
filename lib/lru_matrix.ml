@@ -18,8 +18,25 @@ struct
     [@@deriving hardcaml]
   end
 
-  let initial_state = { State.grid = zero State.port_widths.grid }
-  let rows t = split_lsb ~part_width:(num_ways - 1) t
+  let initial_state =
+    (* We want there to only be one valid outcome for the initial assignment so we can onehot select rather than priority select. Because of this we need to carefull craft the initial grid. *)
+          let open Bits in 
+    let rows =
+      List.init
+        ~f:(fun row ->
+          let cols =
+            List.init
+              ~f:(fun col ->
+                if row = col then None else Some (if row < col then vdd else gnd))
+              num_ways
+          in
+          With_zero_width.concat_lsb cols |> Option.value_exn)
+        num_ways
+    in
+    { State.grid = concat_lsb rows }
+  ;;
+
+  let rows (t : _ State.t) = split_lsb ~part_width:(num_ways - 1) t.grid
 
   let get (t : _ State.t) x y =
     let stride = num_ways - 1 in
@@ -35,7 +52,7 @@ struct
     t.grid.:(bit)
   ;;
 
-  let least_row t =
+  let least_row (t : _ State.t) =
     let indices =
       List.mapi
         ~f:(fun row_idx row ->
@@ -48,21 +65,24 @@ struct
   ;;
 
   let update ~way (t : _ State.t) =
-    List.init
-      ~f:(fun y ->
-        let row_with_holes =
-          List.init
-            ~f:(fun x ->
-              if x = y
-              then None
-              else (
-                let cur = get t x y in
-                let set = way ==:. x in
-                let unset = way ==:. y in
-                Some (cur |: set &: ~:unset)))
-            num_ways
-        in
-        With_zero_width.(concat_lsb row_with_holes |> Option.value_exn))
-      num_ways
+    let next =
+      List.init
+        ~f:(fun y ->
+          let row_with_holes =
+            List.init
+              ~f:(fun x ->
+                if x = y
+                then None
+                else (
+                  let cur = get t x y in
+                  let set = way ==:. y in
+                  let unset = way ==:. x in
+                  Some (cur |: set &: ~:unset)))
+              num_ways
+          in
+          With_zero_width.(concat_lsb row_with_holes |> Option.value_exn))
+        num_ways
+    in
+    { State.grid = concat_lsb next }
   ;;
 end

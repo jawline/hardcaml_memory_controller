@@ -196,14 +196,11 @@ let%expect_test "test-set-association" =
     read_and_assert ~address:addr3 ~value:1212 ~ch:0 sim;
     read_and_assert ~address:addr2 ~value:4321 ~ch:0 sim;
     print_s [%message (stats sim : int Axi4_cache.Statistics.t)]);
-  [%expect
-    {|
+  [%expect {|
     ("Config width" (Axi_config.addr_bits 16))
-    "TODO: The way-cache eviction policy is very bad"
-    "TODO: The any_empty thing is probably not necessary in practice if we do arbitrary eviction, since on the balance of probabilities the entire cache will probably quickly become saturated"
     ("stats sim"
-     ((incoming 13) (incoming_write 7) (incoming_need_to_write_back 2)
-      (incoming_hit 5) (total_cycles 609) (locked_cycles 63)))
+     ((incoming 10) (incoming_write 7) (incoming_need_to_write_back 3)
+      (incoming_hit 1) (total_cycles 633) (locked_cycles 96)))
     Saved waves to /home/blake/waves//_test_set_association.hardcamlwaveform
     |}]
 ;;
@@ -252,11 +249,8 @@ let%expect_test "manufactured miss" =
     read_and_assert ~address:(addr1 + 4) ~value:39 ~ch:0 sim;
     read_and_assert ~address:addr2 ~value:4321 ~ch:0 sim;
     print_s [%message (stats sim : int Axi4_cache.Statistics.t)]);
-  [%expect
-    {|
+  [%expect {|
     ("Config width" (Axi_config.addr_bits 16))
-    "TODO: The way-cache eviction policy is very bad"
-    "TODO: The any_empty thing is probably not necessary in practice if we do arbitrary eviction, since on the balance of probabilities the entire cache will probably quickly become saturated"
     ("stats sim"
      ((incoming 12) (incoming_write 6) (incoming_need_to_write_back 0)
       (incoming_hit 6) (total_cycles 558) (locked_cycles 12)))
@@ -288,15 +282,12 @@ let%expect_test "burst of linear writes" =
     |> Sequence.iter ~f:(fun cell ->
       read_and_assert ~address:cell ~value:(cell + 1) ~ch:0 sim);
     print_s [%message (stats sim : int Axi4_cache.Statistics.t)]);
-  [%expect
-    {|
+  [%expect {|
     ("Config width" (Axi_config.addr_bits 16))
-    "TODO: The way-cache eviction policy is very bad"
-    "TODO: The any_empty thing is probably not necessary in practice if we do arbitrary eviction, since on the balance of probabilities the entire cache will probably quickly become saturated"
     ("stats sim"
      ((incoming 180224) (incoming_write 147456)
-      (incoming_need_to_write_back 8928) (incoming_hit 34912)
-      (total_cycles 786565) (locked_cycles 401729)))
+      (incoming_need_to_write_back 9216) (incoming_hit 30784)
+      (total_cycles 791813) (locked_cycles 407233)))
     Saved waves to /home/blake/waves//_burst_of_linear_writes.hardcamlwaveform
     |}]
 ;;
@@ -340,14 +331,11 @@ let%expect_test "loopback" =
       else ());
     print_s [%message (stats sim : int Axi4_cache.Statistics.t)]);
   print_s [%message "Finished"];
-  [%expect
-    {|
+  [%expect {|
     ("Config width" (Axi_config.addr_bits 16))
-    "TODO: The way-cache eviction policy is very bad"
-    "TODO: The any_empty thing is probably not necessary in practice if we do arbitrary eviction, since on the balance of probabilities the entire cache will probably quickly become saturated"
     ("stats sim"
-     ((incoming 65044) (incoming_write 40000) (incoming_need_to_write_back 39221)
-      (incoming_hit 1856) (total_cycles 1431221) (locked_cycles 1315082)))
+     ((incoming 65044) (incoming_write 40000) (incoming_need_to_write_back 39196)
+      (incoming_hit 1827) (total_cycles 1422997) (locked_cycles 1305566)))
     Saved waves to /home/blake/waves//_loopback.hardcamlwaveform
     Finished
     |}]
