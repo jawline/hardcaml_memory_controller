@@ -10,6 +10,6 @@ module Make (Config : sig
   end
 
   val initial_state : Bits.t State.t
-  val least_row :  Signal.t State.t -> Signal.t
+  val least_row : Signal.t State.t -> Signal.t
   val update : way:Signal.t -> Signal.t State.t -> Signal.t State.t
 end

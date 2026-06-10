@@ -37,7 +37,7 @@ module Make (Config : Config) = struct
     drop_bottom ~width:line_to_cell_bits t |> uresize ~width:ram_metadata_address_width
   ;;
 
-  let cache_set_metadata_size = (num_ways * num_ways) - (num_ways)
+  let cache_set_metadata_size = (num_ways * num_ways) - num_ways
 
   let cache_address_to_hashed_line_address_generic
         (type a)

@@ -19,9 +19,9 @@ struct
   open Config
   open Memory_bus
 
-  module Lru_matrix = Lru_matrix.Make(struct
-          let num_ways = num_ways
-  end)
+  module Lru_matrix = Lru_matrix.Make (struct
+      let num_ways = num_ways
+    end)
 
   let cell_width = Memory_bus.Write.port_widths.write_data
   let cell_address_width = Memory_bus.Read.port_widths.address
@@ -224,7 +224,7 @@ struct
 
     let create scope (i : _ I.t) =
       (* If we're registering requests also register the responses. This can help with fanout from the finished signal which is pretty troublesome on smaller boards. *)
-            let unpacked_cache_q = Lru_matrix.State.Of_signal.unpack i.set_cache in 
+      let unpacked_cache_q = Lru_matrix.State.Of_signal.unpack i.set_cache in
       let read_response =
         if Config.register_axi_requests
         then
@@ -271,9 +271,10 @@ struct
                 })
               incoming_is_correct_line
           in
-          let any_hit = reduce ~f:( |: ) (List.map ~f:(fun t -> t.valid) ways_scan) in
-          let selected = onehot_select ways_scan in
-          mux2 any_hit selected (Lru_matrix.least_row unpacked_cache_q))
+          let%hw any_hit = reduce ~f:( |: ) (List.map ~f:(fun t -> t.valid) ways_scan) in
+          let%hw selected = onehot_select ways_scan in
+          let%hw least_row = Lru_matrix.least_row unpacked_cache_q in
+          mux2 any_hit selected least_row)
       in
       let%hw found_line_in_ways =
         (* Do any of our ways contain the cache line we want. *)
@@ -510,13 +511,14 @@ struct
            if Config.register_axi_requests
            then Memory_requester.Write.Request.Of_signal.reg (Clocking.to_spec i.clock)
            else Fn.id)
-      ; write_set_cache = incoming &: ~:found_line_in_ways
+      ; write_set_cache = incoming
       ; write_set_cache_address =
           cell_to_cache_address i.selected.address
           |> sel_bottom ~width:cache_addr_width
           |> cache_to_set_address
       ; write_set_cache_value =
-              (Lru_matrix.update ~way:way_index unpacked_cache_q |> Lru_matrix.State.Of_signal.pack)
+          Lru_matrix.update ~way:way_index unpacked_cache_q
+          |> Lru_matrix.State.Of_signal.pack
       ; statistics =
           { Statistics.incoming =
               Clocking.reg_fb
@@ -691,21 +693,29 @@ struct
                 (List.nth_exn startup_clear.ram_write which_set)
                 (List.nth_exn request_stage.ram_write which_set)))
       ram_write;
-    set_cache_q
-    <-- (
-            (* We also need to set the global cache metadata on flush and clear. We do this by hijacking the writes that clear an arbitrary way in a set. *)
-            let arbitrary_startup_clear_way = List.nth_exn startup_clear.ram_write 0 in 
-
-            let packed_initial_assignment = (Lru_matrix.State.Of_signal.({ grid = of_bits Lru_matrix.initial_state.grid } |> pack)) in 
-
-            
-            set_cache
-          ~read:set_address
-          ~write_valid:(arbitrary_startup_clear_way.valid |: request_stage.write_set_cache)
-          ~write_address:(mux2 arbitrary_startup_clear_way.valid arbitrary_startup_clear_way.cache_address  request_stage.write_set_cache_address)
-          ~write_value:(mux2 arbitrary_startup_clear_way.valid packed_initial_assignment request_stage.write_set_cache_value)
-          scope
-          i);
+    (set_cache_q
+     <--
+     (* We also need to set the global cache metadata on flush and clear. We do this by hijacking the writes that clear an arbitrary way in a set. *)
+     let arbitrary_startup_clear_way = List.nth_exn startup_clear.ram_write 0 in
+     let packed_initial_assignment =
+       Lru_matrix.State.Of_signal.(
+         { grid = of_bits Lru_matrix.initial_state.grid } |> pack)
+     in
+     set_cache
+       ~read:set_address
+       ~write_valid:(arbitrary_startup_clear_way.valid |: request_stage.write_set_cache)
+       ~write_address:
+         (mux2
+            arbitrary_startup_clear_way.valid
+            arbitrary_startup_clear_way.cache_address
+            request_stage.write_set_cache_address)
+       ~write_value:
+         (mux2
+            arbitrary_startup_clear_way.valid
+            packed_initial_assignment
+            request_stage.write_set_cache_value)
+       scope
+       i);
     { O.response = request_stage.memory_responses
     ; dn = Axi4_out.O.map2 ~f:( |: ) memory_read.axi memory_write.axi
     ; read_ready = arb.read_ready

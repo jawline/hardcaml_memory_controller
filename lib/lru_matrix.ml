@@ -20,7 +20,7 @@ struct
 
   let initial_state =
     (* We want there to only be one valid outcome for the initial assignment so we can onehot select rather than priority select. Because of this we need to carefull craft the initial grid. *)
-          let open Bits in 
+    let open Bits in
     let rows =
       List.init
         ~f:(fun row ->

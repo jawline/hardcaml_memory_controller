@@ -441,7 +441,6 @@ struct
       List.iter ~f:(fun t -> Step.wait_for h t) write_threads;
       ());
     [%expect {| |}]
-  
   ;;
 end
 
