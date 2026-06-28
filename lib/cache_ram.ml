@@ -112,6 +112,7 @@ struct
             ())
         (List.zip_exn i.write.datas real_wstrb_per_cell)
     in
+    (* TODO: Add a small buffer for write back to avoid tight paths from the BRAM back to the BRAM *)
     let line_metadata =
       let min_metadata_size =
         Line_metadata.sum_of_port_widths |> Int.round_up ~to_multiple_of:8

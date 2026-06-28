@@ -185,7 +185,8 @@ struct
       { incoming : 'a [@bits 32]
       ; incoming_write : 'a [@bits 32]
       ; incoming_need_to_write_back : 'a [@bits 32]
-      ; incoming_hit : 'a [@bits 32]
+      ; incoming_read_hits : 'a [@bits 32]
+      ; incoming_write_hits : 'a [@bits 32]
       ; total_cycles : 'a [@bits 32]
       ; locked_cycles : 'a [@bits 32]
       }
@@ -214,7 +215,7 @@ struct
         ; read_request : 'a Memory_requester.Read.Request.t
         ; write_request : 'a Memory_requester.Write.Request.t
         ; write_set_cache : 'a
-        ; write_set_cache_address : 'a [@bits num_sets]
+        ; write_set_cache_address : 'a [@bits address_bits_for num_sets]
         ; write_set_cache_value : 'a [@bits cache_set_metadata_size]
         ; memory_responses : 'a Memory_responses.t
         ; statistics : 'a Statistics.t
@@ -536,10 +537,16 @@ struct
                 ~enable:need_to_flush_line
                 ~f:incr
                 i.clock
-          ; incoming_hit =
+          ; incoming_read_hits =
               Clocking.reg_fb
-                ~width:Statistics.port_widths.incoming
+                ~width:Statistics.port_widths.incoming_read_hits
                 ~enable:(incoming &: incoming_read_is_hit)
+                ~f:incr
+                i.clock
+          ; incoming_write_hits =
+              Clocking.reg_fb
+                ~width:Statistics.port_widths.incoming_write_hits
+                ~enable:(incoming &: incoming_is_write &: found_line_in_ways)
                 ~f:incr
                 i.clock
           ; total_cycles =

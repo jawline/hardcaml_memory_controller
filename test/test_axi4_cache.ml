@@ -212,13 +212,16 @@ let%expect_test "test-set-association" =
     "Contiguous reads"
     ("stats sim"
      ((incoming 10) (incoming_write 7) (incoming_need_to_write_back 2)
-      (incoming_hit 1) (total_cycles 633) (locked_cycles 96)))
+      (incoming_read_hits 1) (incoming_write_hits 4) (total_cycles 633)
+      (locked_cycles 96)))
     ("stats sim"
      ((incoming 12) (incoming_write 7) (incoming_need_to_write_back 2)
-      (incoming_hit 3) (total_cycles 642) (locked_cycles 98)))
+      (incoming_read_hits 3) (incoming_write_hits 4) (total_cycles 642)
+      (locked_cycles 98)))
     ("stats sim"
      ((incoming 15) (incoming_write 7) (incoming_need_to_write_back 3)
-      (incoming_hit 3) (total_cycles 765) (locked_cycles 211)))
+      (incoming_read_hits 3) (incoming_write_hits 4) (total_cycles 765)
+      (locked_cycles 211)))
     |}]
 ;;
 
@@ -271,7 +274,8 @@ let%expect_test "manufactured miss" =
     ("Config width" (Axi_config.addr_bits 16))
     ("stats sim"
      ((incoming 12) (incoming_write 6) (incoming_need_to_write_back 0)
-      (incoming_hit 6) (total_cycles 558) (locked_cycles 12)))
+      (incoming_read_hits 6) (incoming_write_hits 4) (total_cycles 558)
+      (locked_cycles 12)))
     |}]
 ;;
 
@@ -304,8 +308,8 @@ let%expect_test "burst of linear writes" =
     ("Config width" (Axi_config.addr_bits 16))
     ("stats sim"
      ((incoming 180224) (incoming_write 147456)
-      (incoming_need_to_write_back 9216) (incoming_hit 30784)
-      (total_cycles 791813) (locked_cycles 407233)))
+      (incoming_need_to_write_back 9216) (incoming_read_hits 30784)
+      (incoming_write_hits 138240) (total_cycles 791813) (locked_cycles 407233)))
     |}]
 ;;
 
@@ -353,7 +357,8 @@ let%expect_test "loopback" =
     ("Config width" (Axi_config.addr_bits 16))
     ("stats sim"
      ((incoming 65044) (incoming_write 40000) (incoming_need_to_write_back 38323)
-      (incoming_hit 1846) (total_cycles 1422697) (locked_cycles 1305230)))
+      (incoming_read_hits 1846) (incoming_write_hits 2530) (total_cycles 1422697)
+      (locked_cycles 1305230)))
     Finished
     |}]
 ;;

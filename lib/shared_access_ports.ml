@@ -176,7 +176,7 @@ struct
     let module H = Hierarchy.In_scope (I) (O) in
     H.hierarchical
       ~scope
-      ~name:"memory_controller"
+      ~name:"shared_access_ports"
       (create ~capacity_in_bytes ~priority_mode ~build_mode)
       input
   ;;

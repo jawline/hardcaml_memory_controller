@@ -39,7 +39,8 @@ module Make (Config : Config) (Memory_bus : Memory_bus_intf.S) (Axi4_out : Axi4.
       { incoming : 'a [@bits 32]
       ; incoming_write : 'a [@bits 32]
       ; incoming_need_to_write_back : 'a [@bits 32]
-      ; incoming_hit : 'a [@bits 32]
+      ; incoming_read_hits : 'a [@bits 32]
+      ; incoming_write_hits : 'a [@bits 32]
       ; total_cycles : 'a [@bits 32]
       ; locked_cycles : 'a [@bits 32]
       }
