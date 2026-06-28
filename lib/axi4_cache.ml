@@ -12,6 +12,10 @@ module type Config = sig
   val num_ways : int
 end
 
+(* TODO: We should move these into the config and update them throughout the tree. *)
+let delay_write_backs = true
+let delay_write_request = false
+
 (* NOTE: We do not use lines yet, and always supply line:0. The line parameter is for a future skewed set associative variant of the cache. *)
 
 module Make (Config : Config) (Memory_bus : Memory_bus_intf.S) (Axi4_out : Axi4.S) =
@@ -65,6 +69,7 @@ struct
       (struct
         let data_bits = cell_width * line_width
         let id_bits = id_bits
+        let delay_write_request = delay_write_request
       end)
       (Axi4_out)
 
@@ -260,20 +265,24 @@ struct
           ~f:(fun ram -> ram.meta.valid &: (ram.meta.address ==: selected_address_in_way))
           i.ram_read
       in
+      let way_hit =
+        (* TODO: Finish this up - the way index should not be used in RAM decisions as it makes the fanout really bad. *)
+        if num_ways = 1
+        then assert false
+        else
+          List.mapi
+            ~f:(fun i is_hit ->
+              { With_valid.valid = is_hit
+              ; value = of_unsigned_int ~width:way_index_bits i
+              })
+            incoming_is_correct_line
+      in
       let%hw way_index =
         if num_ways = 1
         then gnd
         else (
-          let ways_scan =
-            List.mapi
-              ~f:(fun i is_hit ->
-                { With_valid.valid = is_hit
-                ; value = of_unsigned_int ~width:way_index_bits i
-                })
-              incoming_is_correct_line
-          in
-          let%hw any_hit = reduce ~f:( |: ) (List.map ~f:(fun t -> t.valid) ways_scan) in
-          let%hw selected = onehot_select ways_scan in
+          let%hw any_hit = reduce ~f:( |: ) (List.map ~f:(fun t -> t.valid) way_hit) in
+          let%hw selected = onehot_select way_hit in
           let%hw least_row = Lru_matrix.least_row unpacked_cache_q in
           mux2 any_hit selected least_row)
       in
@@ -422,24 +431,41 @@ struct
         else
           Clocking.reg ~enable:issuing_read_request i.clock (concat_lsb way_ram.read_data)
       in
+      let ram_writes =
+        List.init
+          ~f:(fun which_set_index ->
+            Ram.Write.Of_signal.mux2
+              read_response.finished
+              (List.nth_exn mem_op_write_back which_set_index)
+              (List.nth_exn incoming_write_back which_set_index))
+          num_ways
+      in
+      let ram_writes =
+        if delay_write_backs
+        then
+          List.map
+            ~f:(Ram.Write.Of_signal.reg (Clocking.to_spec_no_clear i.clock))
+            ram_writes
+        else ram_writes
+      in
+      let ram_write_lockout =
+        if delay_write_backs
+        then
+          List.map ~f:(fun (write : _ Ram.Write.t) -> write.valid) ram_writes
+          |> reduce ~f:( |: )
+        else gnd
+      in
       let%hw unit_locked =
         (* We lock for this cycle if it's a write so we can write back to the
              cache (otherwise Read_before_write might lead to incoherent data).
              *)
         (* TODO: This permits an op only every other cycle but without it we end up with very tight timings. Needs pipelining. *)
-        incoming |: (awaiting_read |: awaiting_write)
+        incoming |: (awaiting_read |: awaiting_write) |: ram_write_lockout
         (* 
         incoming &: (~:incoming_read_is_hit |: incoming_is_write) |: locked_reg *)
       in
       { O.locked = unit_locked
-      ; ram_write =
-          List.init
-            ~f:(fun which_set_index ->
-              Ram.Write.Of_signal.mux2
-                read_response.finished
-                (List.nth_exn mem_op_write_back which_set_index)
-                (List.nth_exn incoming_write_back which_set_index))
-            num_ways
+      ; ram_write = ram_writes
       ; memory_responses =
           { read_response =
               (let%hw read_data =

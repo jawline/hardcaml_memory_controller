@@ -6,6 +6,7 @@ module Make
     (Config : sig
        val data_bits : int
        val id_bits : int
+       val delay_write_request : bool
      end)
     (Axi : Axi4.S) =
 struct
@@ -118,8 +119,14 @@ struct
               i.clock;
         { locked
         ; which_beat = beat_counter
-        ; need_to_transfer_address = locked |: i.request.valid &: ~:address_transferred
-        ; need_to_transfer_data = locked |: i.request.valid &: ~:data_transferred
+        ; need_to_transfer_address =
+            locked
+            |: (if delay_write_request then gnd else i.request.valid)
+            &: ~:address_transferred
+        ; need_to_transfer_data =
+            locked
+            |: (if delay_write_request then gnd else i.request.valid)
+            &: ~:data_transferred
         ; finishing = finishing_this_cycle
         }
       ;;
@@ -143,7 +150,11 @@ struct
         =
         Request_tracker.create scope i
       in
-      let output_memory_request = Request.Of_signal.mux2 locked request_reg i.request in
+      let output_memory_request =
+        if delay_write_request
+        then request_reg
+        else Request.Of_signal.mux2 locked request_reg i.request
+      in
       { O.response =
           { Response.finished = finishing
           ; busy = locked

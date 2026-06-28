@@ -29,6 +29,7 @@ module Memory_requester =
     (struct
       let id_bits = 4
       let data_bits = data_width
+      let delay_write_request = false (* TODO: Test both *)
     end)
     (Axi4)
 

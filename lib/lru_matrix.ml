@@ -12,7 +12,7 @@ struct
 
   module State = struct
     type 'a t =
-      { grid : 'a [@bits (num_ways * num_ways) - num_ways]
+      { grid : 'a [@bits Int.max 1 ((num_ways * num_ways) - num_ways)]
         (* We do not include the diagonals in the matrix *)
       }
     [@@deriving hardcaml]
@@ -21,19 +21,22 @@ struct
   let initial_state =
     (* We want there to only be one valid outcome for the initial assignment so we can onehot select rather than priority select. Because of this we need to carefull craft the initial grid. *)
     let open Bits in
-    let rows =
-      List.init
-        ~f:(fun row ->
-          let cols =
-            List.init
-              ~f:(fun col ->
-                if row = col then None else Some (if row < col then vdd else gnd))
-              num_ways
-          in
-          With_zero_width.concat_lsb cols |> Option.value_exn)
-        num_ways
-    in
-    { State.grid = concat_lsb rows }
+    if num_ways = 1
+    then { State.grid = gnd }
+    else (
+      let rows =
+        List.init
+          ~f:(fun row ->
+            let cols =
+              List.init
+                ~f:(fun col ->
+                  if row = col then None else Some (if row < col then vdd else gnd))
+                num_ways
+            in
+            With_zero_width.concat_lsb cols |> Option.value_exn)
+          num_ways
+      in
+      { State.grid = concat_lsb rows })
   ;;
 
   let rows (t : _ State.t) = split_lsb ~part_width:(num_ways - 1) t.grid
@@ -53,36 +56,42 @@ struct
   ;;
 
   let least_row (t : _ State.t) =
-    let indices =
-      List.mapi
-        ~f:(fun row_idx row ->
-          { With_valid.valid = row ==:. 0
-          ; value = of_unsigned_int ~width:(address_bits_for num_ways) row_idx
-          })
-        (rows t)
-    in
-    onehot_select indices
+    if num_ways = 1
+    then gnd
+    else (
+      let indices =
+        List.mapi
+          ~f:(fun row_idx row ->
+            { With_valid.valid = row ==:. 0
+            ; value = of_unsigned_int ~width:(address_bits_for num_ways) row_idx
+            })
+          (rows t)
+      in
+      onehot_select indices)
   ;;
 
   let update ~way (t : _ State.t) =
-    let next =
-      List.init
-        ~f:(fun y ->
-          let row_with_holes =
-            List.init
-              ~f:(fun x ->
-                if x = y
-                then None
-                else (
-                  let cur = get t x y in
-                  let set = way ==:. y in
-                  let unset = way ==:. x in
-                  Some (cur |: set &: ~:unset)))
-              num_ways
-          in
-          With_zero_width.(concat_lsb row_with_holes |> Option.value_exn))
-        num_ways
-    in
-    { State.grid = concat_lsb next }
+    if num_ways = 1
+    then { State.grid = gnd }
+    else (
+      let next =
+        List.init
+          ~f:(fun y ->
+            let row_with_holes =
+              List.init
+                ~f:(fun x ->
+                  if x = y
+                  then None
+                  else (
+                    let cur = get t x y in
+                    let set = way ==:. y in
+                    let unset = way ==:. x in
+                    Some (cur |: set &: ~:unset)))
+                num_ways
+            in
+            With_zero_width.(concat_lsb row_with_holes |> Option.value_exn))
+          num_ways
+      in
+      { State.grid = concat_lsb next })
   ;;
 end
