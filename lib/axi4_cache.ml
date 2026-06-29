@@ -14,7 +14,6 @@ end
 
 (* TODO: We should move these into the config and update them throughout the tree. *)
 let delay_write_backs = true
-let delay_write_request = false
 
 (* NOTE: We do not use lines yet, and always supply line:0. The line parameter is for a future skewed set associative variant of the cache. *)
 
@@ -54,6 +53,13 @@ struct
 
   let axi_address_width = Axi4_out.O.port_widths.awaddr
 
+  let byte_enable_data ~strb t =
+    let bytes_ = split_lsb ~part_width:8 t in
+    List.zip_exn bytes_ (bits_lsb strb)
+    |> List.map ~f:(fun (byte_, strb) -> byte_ &: repeat ~count:8 strb)
+    |> concat_lsb
+  ;;
+
   module Ram = Cache_ram.Make (struct
       let cell_width = cell_width
       let line_width = line_width
@@ -69,7 +75,7 @@ struct
       (struct
         let data_bits = cell_width * line_width
         let id_bits = id_bits
-        let delay_write_request = delay_write_request
+        let delay_write_request = false (* Superseded by register axi requests. *)
       end)
       (Axi4_out)
 
@@ -168,7 +174,8 @@ struct
           { valid
           ; is_write = selected_write
           ; address
-          ; write_data = i.requests.selected_write_ch.data.write_data
+          ; (* We want to latch on downstream lock as the request stage expects the read data to remain consistent. *)
+            write_data = i.requests.selected_write_ch.data.write_data
           ; line_strb
           ; id =
               sel
@@ -265,22 +272,18 @@ struct
           ~f:(fun ram -> ram.meta.valid &: (ram.meta.address ==: selected_address_in_way))
           i.ram_read
       in
-      let way_hit =
-        (* TODO: Finish this up - the way index should not be used in RAM decisions as it makes the fanout really bad. *)
-        if num_ways = 1
-        then assert false
-        else
-          List.mapi
-            ~f:(fun i is_hit ->
-              { With_valid.valid = is_hit
-              ; value = of_unsigned_int ~width:way_index_bits i
-              })
-            incoming_is_correct_line
-      in
       let%hw way_index =
         if num_ways = 1
         then gnd
         else (
+          let way_hit =
+            List.mapi
+              ~f:(fun i is_hit ->
+                { With_valid.valid = is_hit
+                ; value = of_unsigned_int ~width:way_index_bits i
+                })
+              incoming_is_correct_line
+          in
           let%hw any_hit = reduce ~f:( |: ) (List.map ~f:(fun t -> t.valid) way_hit) in
           let%hw selected = onehot_select way_hit in
           let%hw least_row = Lru_matrix.least_row unpacked_cache_q in
@@ -319,11 +322,14 @@ struct
          (e.g., we have dws 1 and 2 and we need dw 3), we need to strobe the ram write back to make sure we don't
          read the stale data we just wrote. *)
       let%hw memory_write_back_strobe =
+        let write_back_strobe =
+          mux2 found_line_in_ways ~:(way_ram.meta.strb) (ones (width way_ram.meta.strb))
+        in
         Clocking.reg
           ~enable:issuing_read_request
           (* Clear on finished otherwise successor reads will use the read data strobe. *)
           (Clocking.add_clear i.clock read_response.finished)
-          (mux2 found_line_in_ways ~:(way_ram.meta.strb) (ones (width way_ram.meta.strb)))
+          write_back_strobe
       in
       let%hw awaiting_read =
         Clocking.reg
@@ -340,10 +346,10 @@ struct
       let mem_op_write_back =
         List.init
           ~f:(fun which_way ->
-            let cached_way_index =
+            let cached_way_hit =
               reg ~enable:incoming (Clocking.to_spec i.clock) (way_index ==:. which_way)
             in
-            { Ram.Write.valid = read_response.finished &: cached_way_index
+            { Ram.Write.valid = read_response.finished &: cached_way_hit
             ; cell_valid = vdd
             ; cache_address =
                 byte_to_cell_address read_response.address
@@ -402,34 +408,19 @@ struct
         mux2 (incoming &: incoming_read_is_hit) i.selected.id read_response.id
       in
       let%hw write_channel = i.selected.id in
-      (* We can pre ack the write even if it's a cache miss as the controller will lock while it flushes the line. *)
+      (* We can pre ack the write even if it's a cache miss as the controller
+         will lock while it flushes the line. *)
       let%hw write_done = incoming &: incoming_is_write in
       let%hw byte_response_address =
         mux2 incoming i.selected.address (byte_to_cell_address read_response.address)
       in
       let%hw which_read_data_cell =
+        (* TODO: We could pre-register this in the arb stage and latch it until
+           unlocked like the cache address. *)
         cut_through_reg
           ~enable:i.selected.valid
           (Clocking.to_spec_no_clear i.clock)
           (sel_bottom ~width:(address_bits_for line_width) byte_response_address)
-      in
-      (* TODO: We could lock the RAM to the same location instead. *)
-      let byte_enable_data ~strb t =
-        let bytes_ = split_lsb ~part_width:8 t in
-        List.zip_exn bytes_ (bits_lsb strb)
-        |> List.map ~f:(fun (byte_, strb) -> byte_ &: repeat ~count:8 strb)
-        |> concat_lsb
-      in
-      let%hw cached_read_data =
-        (* By pipelining this a single cycle we can avoid fanout of the CE on the issuing write request signal.*)
-        if Config.register_axi_requests
-        then
-          Clocking.reg
-            ~enable:(Clocking.reg i.clock issuing_read_request)
-            i.clock
-            (reg (Clocking.to_spec_no_clear i.clock) (concat_lsb way_ram.read_data))
-        else
-          Clocking.reg ~enable:issuing_read_request i.clock (concat_lsb way_ram.read_data)
       in
       let ram_writes =
         List.init
@@ -464,19 +455,25 @@ struct
         (* 
         incoming &: (~:incoming_read_is_hit |: incoming_is_write) |: locked_reg *)
       in
+      let reg_delay_write_back t =
+        if delay_write_backs then reg (Clocking.to_spec_no_clear i.clock) t else t
+      in
       { O.locked = unit_locked
       ; ram_write = ram_writes
       ; memory_responses =
           { read_response =
               (let%hw read_data =
+                 let%hw cached_read_data =
+                   Clocking.reg ~enable:incoming i.clock (concat_lsb way_ram.read_data)
+                 in
                  let%hw reconstituted_read_data =
                    byte_enable_data ~strb:memory_write_back_strobe read_response.data
                    |: byte_enable_data ~strb:~:memory_write_back_strobe cached_read_data
                  in
-                 let%hw read_parts =
-                   mux2 incoming (concat_lsb way_ram.read_data) reconstituted_read_data
-                 in
-                 mux which_read_data_cell (split_lsb ~part_width:cell_width read_parts)
+                 let%hw read_data = mux2 incoming (concat_lsb way_ram.read_data) reconstituted_read_data in 
+                 mux
+                   which_read_data_cell
+                   (split_lsb ~part_width:cell_width read_data)
                in
                List.init
                  ~f:(fun ch ->
@@ -527,7 +524,6 @@ struct
            ; address =
                sel_bottom
                  ~width:axi_address_width
-                 (* TODO: Definately wrong address *)
                  (cache_address_to_byte_address way_ram.meta.address)
            ; write_data = concat_lsb way_ram.read_data
            ; id = i.selected.id
@@ -536,14 +532,16 @@ struct
            if Config.register_axi_requests
            then Memory_requester.Write.Request.Of_signal.reg (Clocking.to_spec i.clock)
            else Fn.id)
-      ; write_set_cache = incoming
+      ; write_set_cache = reg_delay_write_back incoming
       ; write_set_cache_address =
           cell_to_cache_address i.selected.address
           |> sel_bottom ~width:cache_addr_width
           |> cache_to_set_address
+          |> reg_delay_write_back
       ; write_set_cache_value =
           Lru_matrix.update ~way:way_index unpacked_cache_q
           |> Lru_matrix.State.Of_signal.pack
+          |> reg_delay_write_back
       ; statistics =
           { Statistics.incoming =
               Clocking.reg_fb
